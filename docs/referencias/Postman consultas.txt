@@ -1,0 +1,449 @@
+{
+  "info": {
+    "_postman_id": "a7c1f2d4-9b3e-4c8a-8f21-catalogos2026",
+    "name": "GestionIncidencias — Catálogos (Productos + Clientes)",
+    "description": "Pruebas de los endpoints `/api/catalogos/productos` y `/api/catalogos/clientes`.\n\n**Antes de nada**: ejecutar `0. Auth → Login`. Guarda el JWT en la variable de colección `token` y todo lo demás lo usa automáticamente (auth heredada a nivel de colección).\n\n**Variables**\n- `baseUrl` — por defecto `http://localhost:3001` (instancia de PRUEBAS). Producción es el `:3000`; ojo, los endpoints solo existen en producción después de un build + `pm2 restart`.\n- `email` / `password` — credenciales de la app.\n- `token` — lo rellena el Login.\n\n**Rendimiento esperado**: `/productos` tarda 7-18 s por petición (la vista del ERP es lenta y el coste es el escaneo, no las filas). `/clientes` responde en menos de 100 ms. Si Postman corta por timeout, subir el límite en Settings → General → Request timeout.\n\nDocumentación completa: `docs/API_CATALOGOS.md`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Chequeos comunes a todas las peticiones de la colección",
+          "pm.test('Responde JSON (no el HTML del SPA)', function () {",
+          "    pm.expect(pm.response.headers.get('Content-Type') || '').to.include('application/json');",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3001", "type": "string" },
+    { "key": "email", "value": "", "type": "string" },
+    { "key": "password", "value": "", "type": "string" },
+    { "key": "token", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "0. Auth",
+      "item": [
+        {
+          "name": "Login (guarda el token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login OK', function () { pm.response.to.have.status(200); });",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const data = pm.response.json();",
+                  "    pm.collectionVariables.set('token', data.token);",
+                  "    console.log('Token guardado. Usuario:', data.user && data.user.email, '| rol:', data.user && data.user.role);",
+                  "    pm.test('Devuelve token', function () { pm.expect(data.token).to.be.a('string').and.not.empty; });",
+                  "} else {",
+                  "    console.log('Login falló:', pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Rellenar las variables `email` y `password` de la colección. El test script guarda `token` automáticamente."
+          }
+        },
+        {
+          "name": "Sin token → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Rechaza sin token', function () { pm.response.to.have.status(401); });",
+                  "pm.test('Mensaje esperado', function () { pm.expect(pm.response.json().message).to.eql('Token requerido'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/clientes?pageSize=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "clientes"],
+              "query": [{ "key": "pageSize", "value": "1" }]
+            },
+            "description": "Comprueba que la ruta está montada y protegida. Si devuelve HTML en vez de 401 JSON, el router no está cargado en esa instancia (típico en producción antes del build + restart)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Productos con inventario",
+      "item": [
+        {
+          "name": "Catálogo agrupado (primera página)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const d = pm.response.json();",
+                  "pm.test('Trae filas', function () { pm.expect(d.data).to.be.an('array').that.is.not.empty; });",
+                  "pm.test('Modo agrupado', function () { pm.expect(d.agrupado).to.be.true; });",
+                  "pm.test('Campos del producto', function () {",
+                  "    pm.expect(d.data[0]).to.include.keys('code', 'description', 'inventory', 'locationCount', 'unitCost');",
+                  "});",
+                  "console.log('Total productos:', d.total, '| páginas:', d.totalPages, '| ms:', pm.response.responseTime);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/productos?page=1&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "productos"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "25" }
+              ]
+            },
+            "description": "Una fila por producto con el inventario sumado de todas sus ubicaciones (`locationCount` dice en cuántas está). ~63.700 productos en total."
+          }
+        },
+        {
+          "name": "Solo productos con stock",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const d = pm.response.json();",
+                  "pm.test('Todos con inventario > 0', function () {",
+                  "    d.data.forEach(p => pm.expect(p.inventory, p.code).to.be.above(0));",
+                  "});",
+                  "console.log('Productos con stock:', d.total);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/productos?conStock=true&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "productos"],
+              "query": [
+                { "key": "conStock", "value": "true" },
+                { "key": "pageSize", "value": "25" }
+              ]
+            },
+            "description": "`conStock=true` en modo agrupado filtra por inventario TOTAL > 0 (~27.600 productos)."
+          }
+        },
+        {
+          "name": "Inventario de una tienda (fila por ubicación)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const d = pm.response.json();",
+                  "pm.test('No agrupado', function () { pm.expect(d.agrupado).to.be.false; });",
+                  "pm.test('Todas las filas son de la tienda 01', function () {",
+                  "    d.data.forEach(p => pm.expect(p.locationCode).to.eql('01'));",
+                  "});",
+                  "console.log('SKUs con stock en la tienda:', d.total);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/productos?location=T01&agrupado=false&conStock=true&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "productos"],
+              "query": [
+                { "key": "location", "value": "T01" },
+                { "key": "agrupado", "value": "false" },
+                { "key": "conStock", "value": "true" },
+                { "key": "pageSize", "value": "25" }
+              ]
+            },
+            "description": "`location` acepta `T01` o `01` (el ERP no usa el prefijo T). Varias ubicaciones separadas por coma: `location=01,02,11`.\n\nCódigos reales del ERP: 01-05 (tiendas), 09, 0E, 10-15, 20, 30-33, 99, 100-105, 10B, C01, CD11, CD12, CD15, M01, R11, R12, R15."
+          }
+        },
+        {
+          "name": "Búsqueda por texto o código de barras",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const d = pm.response.json();",
+                  "console.log('Coincidencias:', d.total);",
+                  "if (d.data.length) console.log('Ejemplo:', d.data[0].code, '-', d.data[0].description);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/productos?search=abanico&conStock=true&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "productos"],
+              "query": [
+                { "key": "search", "value": "abanico" },
+                { "key": "conStock", "value": "true" },
+                { "key": "pageSize", "value": "25" }
+              ]
+            },
+            "description": "Busca en ItemNo, ItemDescription y Barcode. No distingue mayúsculas (probar también con un código de barras, ej. `search=8887549496851`)."
+          }
+        },
+        {
+          "name": "Filtro por división y estatus",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const d = pm.response.json();",
+                  "pm.test('Filtros aplicados', function () {",
+                  "    d.data.forEach(p => {",
+                  "        pm.expect(p.divisionCode).to.eql('VDOM');",
+                  "        pm.expect(p.itemStatus).to.eql('Activo');",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/productos?divisionCode=VDOM&itemStatus=Activo&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "productos"],
+              "query": [
+                { "key": "divisionCode", "value": "VDOM" },
+                { "key": "itemStatus", "value": "Activo" },
+                { "key": "pageSize", "value": "25" },
+                { "key": "categoryCode", "value": "VDOM01", "disabled": true },
+                { "key": "groupCode", "value": "VDOM0105", "disabled": true }
+              ]
+            },
+            "description": "`itemStatus` es exacto: `Activo`, `Descatalogado`, `Bloqueado`. Los filtros `categoryCode` y `groupCode` van deshabilitados; activarlos en la pestaña Params para probarlos."
+          }
+        },
+        {
+          "name": "Volcado completo (pageSize=5000, sin conteo)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const d = pm.response.json();",
+                  "pm.test('Conteo omitido', function () { pm.expect(d.total).to.be.null; });",
+                  "console.log('Filas:', d.data.length, '| rango:', d.data[0] && d.data[0].code, '→', d.data[d.data.length - 1] && d.data[d.data.length - 1].code);",
+                  "console.log('Tiempo:', pm.response.responseTime, 'ms | tamaño:', Math.round(pm.response.responseSize / 1024), 'KB');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/productos?pageSize=5000&page=1&total=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "productos"],
+              "query": [
+                { "key": "pageSize", "value": "5000" },
+                { "key": "page", "value": "1" },
+                { "key": "total", "value": "false" }
+              ]
+            },
+            "description": "Forma recomendada de bajarse el catálogo entero: 5000 por página (máximo) y `total=false` para saltarse el COUNT. Son ~13 páginas de ~1.5 MB, unos 17 s cada una.\n\nOJO: subir el timeout de Postman (Settings → General → Request timeout, poner 60000 o 0)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Clientes",
+      "item": [
+        {
+          "name": "Todos los clientes (no B2C)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const d = pm.response.json();",
+                  "pm.test('Trae filas', function () { pm.expect(d.data).to.be.an('array').that.is.not.empty; });",
+                  "pm.test('Campos solicitados', function () {",
+                  "    pm.expect(d.data[0]).to.have.all.keys('no', 'name', 'name2', 'phoneNo', 'mobilePhoneNo', 'vatRegistrationNo', 'contact', 'telefono2', 'correo1', 'email', 'blocked');",
+                  "});",
+                  "console.log('Total clientes no-B2C:', d.total, '| ms:', pm.response.responseTime);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/clientes?page=1&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "clientes"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "25" }
+              ]
+            },
+            "description": "Equivale a:\n\n```sql\nSELECT No_, Name, [Name 2], [Phone No_], [Mobile Phone No_], [VAT Registration No_],\n       Contact, [Telefono 2], [Correo 1], [E-Mail], Blocked\nFROM [La Innovacion SRL$Customer]\nWHERE [B2C Customer] = 0\n```\n\n~12.300 registros. Ordenado por `No_`, así que la paginación es estable para un volcado completo (`pageSize=5000` → 3 páginas)."
+          }
+        },
+        {
+          "name": "Solo clientes activos (no bloqueados)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const d = pm.response.json();",
+                  "pm.test('Ninguno bloqueado', function () {",
+                  "    d.data.forEach(c => pm.expect(c.blocked, c.no).to.eql(0));",
+                  "});",
+                  "console.log('Clientes no bloqueados:', d.total);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/clientes?blocked=false&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "clientes"],
+              "query": [
+                { "key": "blocked", "value": "false" },
+                { "key": "pageSize", "value": "25" }
+              ]
+            },
+            "description": "`blocked=false` → solo `Blocked = 0`. `blocked=true` → solo los bloqueados. Sin el parámetro salen todos."
+          }
+        },
+        {
+          "name": "Buscar cliente (nombre / RNC / código)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const d = pm.response.json();",
+                  "console.log('Coincidencias:', d.total);",
+                  "d.data.slice(0, 5).forEach(c => console.log(c.no, '|', c.name, '|', c.vatRegistrationNo));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/clientes?search=innova&pageSize=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "clientes"],
+              "query": [
+                { "key": "search", "value": "innova" },
+                { "key": "pageSize", "value": "25" }
+              ]
+            },
+            "description": "Busca en `No_`, `Name`, `Name 2`, `VAT Registration No_` y `Contact`. No distingue mayúsculas. Probar también con un RNC, ej. `search=101009782`."
+          }
+        },
+        {
+          "name": "Volcado completo (pageSize=5000)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', function () { pm.response.to.have.status(200); });",
+                  "const d = pm.response.json();",
+                  "console.log('Filas:', d.data.length, 'de', d.total, '| páginas:', d.totalPages, '| ms:', pm.response.responseTime);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalogos/clientes?pageSize=5000&page=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalogos", "clientes"],
+              "query": [
+                { "key": "pageSize", "value": "5000" },
+                { "key": "page", "value": "1" }
+              ]
+            },
+            "description": "3 páginas cubren los ~12.300 clientes. Esta tabla es rápida, no hace falta `total=false`."
+          }
+        }
+      ]
+    }
+  ]
+}

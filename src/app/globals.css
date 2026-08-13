@@ -1,0 +1,147 @@
+@import 'tailwindcss';
+
+/*
+ * Cotizador La Innovación
+ *
+ * La referencia no es un dashboard, es la hoja de cotización impresa que estos
+ * vendedores ya usan: papel blanco, estructura negra pesada, el rojo de la
+ * marca como bloque sólido. El ERP guarda las descripciones en mayúsculas y
+ * telegráficas ("ABANICO KDK A40A MESA 16\" AZUL"); esa voz se respeta tal cual
+ * en vez de maquillarla, porque es la que el vendedor reconoce.
+ *
+ * Regla de color: lo resuelto es callado. El ámbar y el rojo solo aparecen
+ * donde una persona tiene que decidir algo. En una pantalla de 100 filas, el
+ * color que no significa nada es ruido que esconde al que sí.
+ */
+
+@theme {
+  --color-papel: #ffffff;
+  --color-bruma: #f5f5f3;
+  --color-tinta: #0a0a0a;
+  --color-humo: #6b6b68;
+  --color-linea: #e0e0dc;
+
+  --color-rojo: #e91f29;
+  --color-rojo-oscuro: #b8151d;
+  --color-ambar: #b25e00;
+  --color-ambar-suave: #fdf4e7;
+
+  --font-sans: ui-sans-serif, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Radios contenidos. Es una herramienta de trabajo: lo justo para que no se
+     vea rígida, no tanto como para que parezca una app de consumo. */
+  --radius-caja: 0.625rem;
+  --radius-control: 0.375rem;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background: var(--color-papel);
+    color: var(--color-tinta);
+    font-family: var(--font-sans);
+  }
+
+  /* Las cifras tienen que alinearse en columna: son 100 filas de precios. */
+  .cifra {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-rojo);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Microetiqueta: el eyebrow de la hoja impresa. */
+  .etiqueta {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--color-humo);
+  }
+
+  .titulo {
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    text-transform: uppercase;
+  }
+
+  .boton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: var(--color-tinta);
+    color: var(--color-papel);
+    font-weight: 700;
+    font-size: 0.8125rem;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding: 0.7rem 1.25rem;
+    border-radius: var(--radius-control);
+    transition: background 0.12s ease;
+  }
+  .boton:hover:not(:disabled) {
+    background: var(--color-rojo);
+  }
+  .boton:disabled {
+    background: var(--color-linea);
+    color: var(--color-humo);
+    cursor: not-allowed;
+  }
+
+  .boton-borde {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border: 1.5px solid var(--color-tinta);
+    background: transparent;
+    color: var(--color-tinta);
+    font-weight: 700;
+    font-size: 0.75rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 0.45rem 0.85rem;
+    border-radius: var(--radius-control);
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
+  }
+  .boton-borde:hover {
+    background: var(--color-tinta);
+    color: var(--color-papel);
+  }
+
+  .campo {
+    width: 100%;
+    border: 1.5px solid var(--color-linea);
+    background: var(--color-papel);
+    padding: 0.7rem 0.85rem;
+    font-size: 0.9rem;
+    border-radius: var(--radius-control);
+    transition: border-color 0.12s ease;
+  }
+  .campo:focus {
+    border-color: var(--color-tinta);
+    outline: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

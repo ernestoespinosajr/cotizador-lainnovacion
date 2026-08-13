@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+build/
+
+# La base espejo se reconstruye con `npm run sync`; no se versiona.
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+.env.local
+.env*.local
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store

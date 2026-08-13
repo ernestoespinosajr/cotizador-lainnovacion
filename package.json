@@ -1,0 +1,28 @@
+{
+  "name": "cotizador-la-innovacion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "sync": "node --experimental-strip-types scripts/sync-catalogo.ts",
+    "sync:clientes": "node --experimental-strip-types scripts/sync-catalogo.ts --solo=clientes"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "exceljs": "^4.4.0",
+    "next": "^15.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2"
+  }
+}

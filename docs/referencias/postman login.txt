@@ -1,0 +1,32 @@
+{
+  "id": "b8d2e3f5-1c4a-4d7b-9e02-entornopruebas26",
+  "name": "GestionIncidencias — Pruebas (3001)",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "email",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "password",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment",
+  "_postman_exported_using": "GestionIncidencias/docs"
+}
