@@ -27,7 +27,12 @@ export default function PasoCotizacion({
   onVolver: () => void
 }) {
   const [emitiendo, setEmitiendo] = useState(false)
-  const [error, setError] = useState<{ mensaje: string; referencia?: string } | null>(null)
+  const [error, setError] = useState<{
+    mensaje: string
+    referencia?: string
+    detalle?: string
+    rechazoDelErp?: boolean
+  } | null>(null)
   const [emitida, setEmitida] = useState<Emitida | null>(null)
 
   const incluidas = lineas.filter((l) => l.incluida && l.elegido)
@@ -57,7 +62,12 @@ export default function PasoCotizacion({
       })
       const d = await res.json()
       if (!res.ok) {
-        setError({ mensaje: d.error ?? 'No se pudo emitir la cotización.', referencia: d.referencia })
+        setError({
+          mensaje: d.error ?? 'No se pudo emitir la cotización.',
+          referencia: d.referencia,
+          detalle: d.detalle,
+          rechazoDelErp: d.rechazoDelErp,
+        })
         return
       }
       setEmitida(d as Emitida)
@@ -143,12 +153,31 @@ export default function PasoCotizacion({
 
       {error && (
         <div className="mt-4 rounded-caja border-l-4 border-rojo bg-bruma px-4 py-3 text-sm">
-          <p className="font-semibold">{error.mensaje}</p>
-          {error.referencia && (
-            <p className="mt-1 text-xs text-humo">
-              Referencia enviada: <span className="cifra">{error.referencia}</span>. Si el error fue
-              de red, la cotización pudo quedar creada en el ERP con esa referencia.
+          <p className="font-semibold leading-relaxed">{error.mensaje}</p>
+
+          {/* La referencia solo importa cuando quedó la duda de si el documento
+              se creó. Si el ERP respondió rechazando, no se creó nada y sembrar
+              la duda solo confunde. */}
+          {error.rechazoDelErp ? (
+            <p className="mt-1.5 text-xs text-humo">
+              No se creó ninguna cotización en el ERP.
             </p>
+          ) : (
+            error.referencia && (
+              <p className="mt-1.5 text-xs text-humo">
+                Referencia enviada: <span className="cifra">{error.referencia}</span>. Como el fallo
+                fue de comunicación, la cotización pudo quedar creada en el ERP con esa referencia.
+              </p>
+            )
+          )}
+
+          {error.detalle && error.detalle !== error.mensaje && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-xs font-semibold text-humo hover:text-tinta">
+                Ver el mensaje original del ERP
+              </summary>
+              <p className="cifra mt-1.5 text-[0.7rem] leading-relaxed text-humo">{error.detalle}</p>
+            </details>
           )}
         </div>
       )}

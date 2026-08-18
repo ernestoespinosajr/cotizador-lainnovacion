@@ -63,7 +63,15 @@ export async function POST(req: Request) {
   } catch (e) {
     if (e instanceof ErrorNav) {
       return NextResponse.json(
-        { error: e.message, codigo: e.codigo, referencia },
+        {
+          error: e.message,
+          codigo: e.codigo,
+          detalle: e.detalle,
+          // Si el ERP respondió rechazando, no hay documento creado y no
+          // corresponde sembrar la duda con la referencia.
+          rechazoDelErp: e.rechazoDelErp,
+          referencia,
+        },
         { status: 502 },
       )
     }

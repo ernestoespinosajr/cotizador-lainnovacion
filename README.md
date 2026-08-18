@@ -165,6 +165,19 @@ No se puede atajar antes de emitir, porque el precio del cliente solo se conoce
 cuando NAV responde. Así que el paso 4 revisa el documento ya emitido y avisa
 fuerte antes de que el vendedor mande el PDF.
 
+## El ERP puede pedir una confirmación que nadie puede dar
+
+Algunas validaciones propias de La Innovación en NAV preguntan «¿desea proceder?»
+antes de crear el documento —por ejemplo, cuando el cliente tiene facturas
+vencidas—. Por servicios web no hay nadie que responda esa pregunta, y NAV
+devuelve un párrafo en inglés sobre «client callbacks» con el mensaje útil
+enterrado adentro.
+
+Esto **no se puede prever** desde el paso 1: el campo `Blocked` del cliente viene
+vacío y no existe servicio que exponga las facturas vencidas. Lo que sí se hace es
+rescatar el mensaje en español y decir qué hacer. La solución de fondo es del lado
+del ERP: esa confirmación no debería ejecutarse en contexto de servicios web.
+
 ## Un producto bloqueado tumba la cotización completa
 
 Verificado estado por estado contra el ERP: `Activo`, `Descatalogado` y

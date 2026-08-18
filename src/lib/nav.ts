@@ -111,13 +111,64 @@ export type CotizacionNav = {
 export class ErrorNav extends Error {
   codigo: string | null
   requestId: string | null
+  /** Texto crudo de NAV, para diagnóstico. */
+  detalle: string | null
 
-  constructor(mensaje: string, codigo: string | null = null, requestId: string | null = null) {
+  constructor(
+    mensaje: string,
+    codigo: string | null = null,
+    requestId: string | null = null,
+    detalle: string | null = null,
+  ) {
     super(mensaje)
     this.name = 'ErrorNav'
     this.codigo = codigo
     this.requestId = requestId
+    this.detalle = detalle
   }
+
+  /**
+   * ¿NAV rechazó la operación, o falló la comunicación?
+   *
+   * Importa para saber si la cotización pudo quedar creada: un rechazo de NAV
+   * llega con código y significa que no se creó nada. Un fallo de red no lleva
+   * código y sí deja la duda.
+   */
+  get rechazoDelErp() {
+    return this.codigo !== null
+  }
+}
+
+/**
+ * Traduce los errores de NAV a algo que un vendedor pueda accionar.
+ *
+ * El caso que más confunde es el del diálogo de confirmación: cuando una
+ * validación del ERP pregunta «¿desea proceder?», por servicios web no hay nadie
+ * que responda y NAV devuelve un párrafo en inglés sobre «client callbacks». El
+ * mensaje útil está adentro, en español, y es el que se rescata.
+ */
+function traducirNav(texto: string): string {
+  const callback = texto.match(/confirmation dialog box:\s*(.+?)\s*\(Table/i)
+  if (callback) {
+    const pregunta = callback[1].replace(/,?\s*¿?desea proceder\??$/i, '').trim()
+    return (
+      `El ERP no puede emitir esta cotización sin una confirmación manual: «${pregunta}». ` +
+      'Por servicios web no hay forma de responder esa pregunta, así que hay que ' +
+      'liberar al cliente en el ERP o emitir la cotización desde el propio Dynamics.'
+    )
+  }
+
+  const itemBloqueado = texto.match(/Blocked must be equal to 'No'.*?Item: No\.=([A-Za-z0-9\-]+)/i)
+  if (itemBloqueado) {
+    return `El producto ${itemBloqueado[1]} está bloqueado en el ERP y no se puede cotizar. Hay que quitarlo o reemplazarlo.`
+  }
+
+  const clienteBloqueado = texto.match(/Customer (\S+) is blocked with type (\w+)/i)
+  if (clienteBloqueado) {
+    return `El cliente ${clienteBloqueado[1]} está bloqueado para ${clienteBloqueado[2] === 'Invoice' ? 'facturación' : clienteBloqueado[2]}. Hay que liberarlo en el ERP antes de cotizarle.`
+  }
+
+  return texto
 }
 
 function escapar(v: string | number) {
@@ -178,10 +229,14 @@ async function llamar(xml: string): Promise<Record<string, any>> {
 
   // NAV informa los errores dentro del cuerpo, con HTTP 200 y success:true.
   if (r.Response_Code || r.Response_Text) {
+    const crudo = String(r.Response_Text ?? 'NAV rechazó la solicitud sin explicar el motivo.')
     throw new ErrorNav(
-      String(r.Response_Text ?? 'NAV rechazó la solicitud sin explicar el motivo.'),
-      r.Response_Code ? String(r.Response_Code) : null,
+      traducirNav(crudo),
+      // Sin código explícito igual se marca como rechazo: NAV respondió, así que
+      // no hay duda sobre si el documento quedó creado.
+      r.Response_Code ? String(r.Response_Code) : 'sin-codigo',
       r.Request_ID ? String(r.Request_ID) : null,
+      crudo,
     )
   }
 
