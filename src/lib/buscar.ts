@@ -89,12 +89,26 @@ export function singular(t: string) {
   return t
 }
 
+/**
+ * Formas a probar de un término: la escrita y sus dos singulares posibles.
+ *
+ * El español no permite deducir el singular de un plural en `-es` sin saber la
+ * palabra: «extractores» pierde las dos letras y «grandes» solo la `s`. Adivinar
+ * una sola forma producía tokens inventados como `grand`, que además son raros y
+ * por lo tanto el IDF los premiaba: "zafacones grandes" devolvía una ESPONJA
+ * AUTO GRAND PRIX. Se prueban las tres y gana la que exista en el catálogo.
+ */
+export function variantes(t: string): string[] {
+  const v = new Set([t])
+  if (t.length >= 5 && t.endsWith('s')) v.add(t.slice(0, -1))
+  if (t.length >= 6 && t.endsWith('es')) v.add(t.slice(0, -2))
+  return [...v].filter((x) => x.length >= 3)
+}
+
 export function terminos(s: string) {
   return normalizar(s)
     .split(' ')
     .filter((t) => t.length >= 2 && !VACIAS.has(t))
-    .map(singular)
-    .filter((t) => !VACIAS.has(t))
 }
 
 /**
@@ -105,7 +119,7 @@ export function terminos(s: string) {
  */
 function consultaFts(ts: string[]) {
   return ts
-    .map((t) => (t.length >= 3 ? `"${t}"*` : `"${t}"`))
+    .flatMap((t) => (t.length >= 3 ? variantes(t).map((v) => `"${v}"*`) : [`"${t}"`]))
     .join(' OR ')
 }
 
@@ -177,11 +191,19 @@ function idf(termino: string) {
 const PESO_NUCLEO = 2.5
 
 function pesos(ts: string[]) {
-  return ts.map((t, i) => idf(t) * (i === 0 ? PESO_NUCLEO : 1))
+  // Se toma el IDF más bajo de las variantes: es el de la forma que realmente
+  // existe en el catálogo. Con la más alta, un stem inventado y por eso rarísimo
+  // se llevaría todo el peso.
+  return ts.map((t, i) => Math.min(...variantes(t).map(idf)) * (i === 0 ? PESO_NUCLEO : 1))
 }
 
 function textoDe(p: Producto) {
   return normalizar(`${p.code} ${p.description} ${p.description2} ${p.barcode}`)
+}
+
+/** Un término cuenta como presente si aparece cualquiera de sus variantes. */
+function aparece(t: string, texto: string) {
+  return variantes(t).some((v) => texto.includes(v))
 }
 
 function cobertura(ts: string[], ws: number[], p: Producto) {
@@ -191,7 +213,7 @@ function cobertura(ts: string[], ws: number[], p: Producto) {
   let total = 0
   ts.forEach((t, i) => {
     total += ws[i]
-    if (texto.includes(t)) hallado += ws[i]
+    if (aparece(t, texto)) hallado += ws[i]
   })
   return total > 0 ? hallado / total : 0
 }
@@ -213,14 +235,15 @@ function posicionNucleo(ts: string[], p: Producto) {
   const nucleo = ts[0]
   if (!nucleo) return 0
   const palabras = normalizar(p.description).split(' ')
-  // Prefijo en cualquier dirección: cubre el plural que quede sin normalizar
-  // ("NEVERAS EXHIBIDORAS" contra `nevera`) sin depender de acertar el stem.
+  // Prefijo en cualquier dirección y contra todas las variantes del núcleo:
+  // cubre el plural sin depender de acertar el stem.
   const cabeza = palabras[0] ?? ''
-  if (cabeza === nucleo || cabeza.startsWith(nucleo)) return 1
-  if (cabeza.length >= 4 && nucleo.startsWith(cabeza)) return 1
+  const vs = variantes(nucleo)
+  if (vs.some((v) => cabeza === v || cabeza.startsWith(v))) return 1
+  if (cabeza.length >= 4 && vs.some((v) => v.startsWith(cabeza))) return 1
   // Segunda posición: suele ser un compuesto legítimo ("AIRE ACONDICIONADO"),
   // pero también el patrón "PIEZA + producto". Cuenta, con la mitad del peso.
-  if (palabras[1] === nucleo) return 0.35
+  if (vs.includes(palabras[1] ?? '')) return 0.35
   return 0
 }
 
@@ -236,41 +259,79 @@ function relevancia(ts: string[], ws: number[], p: Producto) {
   if (ts.length === 0) return 0
   const texto = textoDe(p)
   const maxQuery = Math.max(...ws)
-  const maxHallado = Math.max(0, ...ws.filter((_, i) => texto.includes(ts[i])))
+  const maxHallado = Math.max(0, ...ws.filter((_, i) => aparece(ts[i], texto)))
   return maxQuery > 0 ? maxHallado / maxQuery : 0
 }
 
-/** Recupera candidatos del espejo local. Milisegundos, no segundos. */
-export function candidatos(texto: string, limite = 40): Candidato[] {
-  const ts = terminos(texto)
-  if (ts.length === 0) return []
-
-  const d = db()
-  const filas = d
+/**
+ * Trae filas del índice para una consulta FTS, con su bm25 normalizado dentro
+ * del propio lote. Se normaliza por lote y no globalmente porque los bm25 de dos
+ * consultas distintas no son comparables entre sí.
+ */
+function lote(consulta: string, limite: number, soloVendibles = false) {
+  const filas = db()
     .prepare(
       `SELECT p.*, bm25(productos_fts) AS rank
          FROM productos_fts f
          JOIN productos p ON p.code = f.code
         WHERE productos_fts MATCH ?
+          ${soloVendibles ? "AND p.itemStatus = 'Activo' AND p.inventory > 0" : ''}
         ORDER BY rank
         LIMIT ?`,
     )
-    .all(consultaFts(ts), limite * 3) as (Producto & { rank: number })[]
+    .all(consulta, limite) as (Producto & { rank: number })[]
 
   if (filas.length === 0) return []
-
-  // bm25 ya pondera por rareza y por longitud del documento, y lo hace bien: es
-  // quien ordena. La cobertura solo desempata y el estado/existencia apenas
-  // empuja. Un reordenamiento propio más agresivo destruye un buen ranking.
   const brutos = filas.map((f) => -f.rank)
   const mejor = Math.max(...brutos)
   const peor = Math.min(...brutos)
   const rango = mejor - peor || 1
+  return filas.map((p) => ({ p, bm25: (-p.rank - peor) / rango }))
+}
+
+/**
+ * Recupera candidatos del espejo local. Milisegundos, no segundos.
+ *
+ * Se consulta el índice dos veces y se unen los resultados:
+ *
+ *   1. Todos los términos con OR — buena cobertura, incluso cuando el cliente
+ *      usa una palabra que el ERP no tiene.
+ *   2. Solo el núcleo del pedido — garantiza que entren productos de ese tipo.
+ * Se probó una tercera, filtrando a `Activo` con existencia, y se descartó: el
+ * filtro obliga a SQLite a recorrer todas las coincidencias del índice antes de
+ * recortar —2.468 para "pintura"—, lo que llevó la consulta de 91 ms a 10,5 s
+ * sin mejorar el resultado. El sesgo por disponibilidad tiene que vivir en el
+ * puntaje, no en la recuperación.
+ *
+ * La segunda consulta sí es necesaria, y se agregó después de medir:
+ *
+ * Con una sola consulta OR y un límite duro, bm25 premia lo raro y lo corto, así
+ * que en "pintura blanca" los documentos que solo coinciden en `blanca`
+ * —canastas, luces de navidad, lanilla— desplazaban a las 2.468 pinturas del
+ * catálogo: entraba UNA, y bloqueada.
+ *
+ */
+export function candidatos(texto: string, limite = 40): Candidato[] {
+  const ts = terminos(texto)
+  if (ts.length === 0) return []
+
+  const porCodigo = new Map<string, { p: Producto; bm25: number }>()
+  const agregar = (filas: { p: Producto; bm25: number }[]) => {
+    for (const f of filas) {
+      const previo = porCodigo.get(f.p.code)
+      // Si aparece en los dos lotes, se le deja el mejor bm25 de ambos.
+      if (!previo || f.bm25 > previo.bm25) porCodigo.set(f.p.code, f)
+    }
+  }
+
+  agregar(lote(consultaFts(ts), limite * 3))
+  if (ts.length > 1) agregar(lote(consultaFts([ts[0]]), limite * 2))
+
+  if (porCodigo.size === 0) return []
 
   const ws = pesos(ts)
-  const scored = filas.map((p) => {
+  const scored = [...porCodigo.values()].map(({ p, bm25 }) => {
     const cob = cobertura(ts, ws, p)
-    const bm25 = (-p.rank - peor) / rango
     return {
       ...p,
       cobertura: cob,

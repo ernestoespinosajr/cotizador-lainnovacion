@@ -77,12 +77,17 @@ const ESQUEMA_LINEAS = {
       items: {
         type: 'object',
         properties: {
-          texto: { type: 'string', description: 'El producto pedido, sin la cantidad.' },
+          texto: { type: 'string', description: 'El producto pedido, sin la cantidad, tal como lo escribió el cliente.' },
+          busqueda: {
+            type: 'string',
+            description:
+              'El mismo producto con la ortografía corregida y el término que usaría un catálogo dominicano.',
+          },
           cantidad: { type: 'number' },
           unidad: { type: ['string', 'null'] },
           lineaOriginal: { type: 'integer', description: 'Número de línea del texto de origen.' },
         },
-        required: ['texto', 'cantidad', 'unidad', 'lineaOriginal'],
+        required: ['texto', 'busqueda', 'cantidad', 'unidad', 'lineaOriginal'],
         additionalProperties: false,
       },
     },
@@ -102,7 +107,13 @@ Reglas:
 - Ignora saludos, despedidas, firmas, direcciones, condiciones de pago y todo lo que no sea un producto.
 - No inventes productos que no estén en el texto. Si el mensaje no pide nada concreto, devuelve una lista vacía.
 - El texto viene con cada línea numerada como "N| contenido". Usa esa N en "lineaOriginal".
-- Responde siempre en español dominicano, con tuteo.`
+- Responde siempre en español dominicano, con tuteo.
+
+Sobre "busqueda": es lo que se va a buscar en el catálogo del ERP, y es distinto de "texto".
+- Corrige las faltas: "nebera" es nevera, "microhondas" es microondas, "labadora" es lavadora, "ornillas" es hornillas.
+- Usa la palabra del catálogo, no la del cliente: en República Dominicana se dice "chapa" pero el catálogo dice CERRADURA; "refrigerador" es NEVERA; "greca" es GRECA; "zafacón" es ZAFACON; "arrocera" es OLLA ARROCERA.
+- Deja el singular y quita muletillas, pero conserva marca, modelo y medidas.
+- Si el término del cliente ya es el correcto, repítelo igual.`
 
 export async function extraerLineas(texto: string): Promise<LineaSolicitud[]> {
   const c = cliente()
@@ -115,7 +126,13 @@ export async function extraerLineas(texto: string): Promise<LineaSolicitud[]> {
 
   try {
     const d = await pedirJson<{
-      lineas: { texto: string; cantidad: number; unidad: string | null; lineaOriginal: number }[]
+      lineas: {
+        texto: string
+        busqueda: string
+        cantidad: number
+        unidad: string | null
+        lineaOriginal: number
+      }[]
     }>(c, 'lineas_solicitud', ESQUEMA_LINEAS, PROMPT_EXTRACCION, numerado)
 
     if (!d?.lineas) return parsearTexto(texto)
@@ -125,6 +142,7 @@ export async function extraerLineas(texto: string): Promise<LineaSolicitud[]> {
       .map((l, i) => ({
         id: `ia${i}_${Date.now().toString(36)}`,
         texto: l.texto.trim(),
+        busqueda: l.busqueda?.trim() || l.texto.trim(),
         cantidad: l.cantidad > 0 ? l.cantidad : 1,
         unidad: l.unidad ?? null,
         codigoCliente: null,

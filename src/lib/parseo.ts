@@ -26,6 +26,16 @@ export type LineaSolicitud = {
   id: string
   /** Lo que pidió el cliente, tal cual, sin la cantidad. */
   texto: string
+  /**
+   * El mismo pedido con la ortografía corregida y el término que usa el
+   * catálogo, para buscar. Lo produce el modelo; sin IA queda igual a `texto`.
+   *
+   * Existe porque las dos cosas sirven para fines distintos: `texto` es el
+   * registro de lo que pidió el cliente y se le muestra al vendedor, mientras
+   * `busqueda` es lo que entra al índice. Escrito "nebera", el registro debe
+   * decir nebera y la búsqueda tiene que decir nevera.
+   */
+  busqueda?: string
   cantidad: number
   unidad: string | null
   /** Código que puso el cliente, si venía en una columna aparte. */

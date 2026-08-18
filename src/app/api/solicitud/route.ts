@@ -55,7 +55,7 @@ export async function POST(req: Request) {
   // Recuperación local: milisegundos por línea, incluso con 100 líneas.
   const resueltas: LineaResuelta[] = lineas.map((l) => ({
     ...l,
-    resolucion: resolver(l.codigoCliente || l.texto, clienteNo),
+    resolucion: resolver(l.codigoCliente || l.busqueda || l.texto, clienteNo),
   }))
 
   // El modelo solo reordena lo que la búsqueda dejó dudoso. Lo que ya entró por
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
         dudosas.map((l) => ({
           id: l.id,
           texto: l.texto,
-          candidatos: candidatos(l.codigoCliente || l.texto, 12),
+          candidatos: candidatos(l.codigoCliente || l.busqueda || l.texto, 12),
         })),
       )
 
