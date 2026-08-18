@@ -3,6 +3,7 @@ import { candidatos, resolver, type Resolucion } from '@/lib/buscar'
 import { parsearExcel, parsearTexto, type LineaSolicitud } from '@/lib/parseo'
 import { extraerLineas, iaDisponible, reordenar } from '@/lib/ia'
 import { estadoEspejo } from '@/lib/db'
+import { cuantizar, normalizarVector, vecinos, vectorizar, vectoresDisponibles } from '@/lib/embeddings'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -52,10 +53,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ lineas: [], aviso: 'No se encontró ningún producto en la solicitud.' })
   }
 
+  const consultaDe = (l: LineaSolicitud) => l.codigoCliente || l.busqueda || l.texto
+
+  /*
+   * Vecinos semánticos de cada línea.
+   *
+   * Todas las consultas viajan en UNA sola llamada de embeddings: con cien líneas,
+   * cien llamadas sueltas serían minutos. Si no hay índice construido o falla la
+   * vectorización, se sigue con búsqueda de texto y nada se rompe.
+   */
+  let porLinea = new Map<string, { code: string; similitud: number }[]>()
+  if (vectoresDisponibles()) {
+    try {
+      const vs = await vectorizar(lineas.map(consultaDe))
+      lineas.forEach((l, i) => {
+        const v = vs[i]
+        if (v) porLinea.set(l.id, vecinos(cuantizar(normalizarVector(v)), 60))
+      })
+    } catch (e) {
+      console.error('[vectores] no se pudo vectorizar la solicitud, se usa solo texto:', e)
+    }
+  }
+
   // Recuperación local: milisegundos por línea, incluso con 100 líneas.
   const resueltas: LineaResuelta[] = lineas.map((l) => ({
     ...l,
-    resolucion: resolver(l.codigoCliente || l.busqueda || l.texto, clienteNo),
+    resolucion: resolver(consultaDe(l), clienteNo, porLinea.get(l.id) ?? []),
   }))
 
   // El modelo solo reordena lo que la búsqueda dejó dudoso. Lo que ya entró por
@@ -67,7 +90,7 @@ export async function POST(req: Request) {
         dudosas.map((l) => ({
           id: l.id,
           texto: l.texto,
-          candidatos: candidatos(l.codigoCliente || l.busqueda || l.texto, 12),
+          candidatos: candidatos(consultaDe(l), 12, porLinea.get(l.id) ?? []),
         })),
       )
 

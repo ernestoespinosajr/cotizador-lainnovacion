@@ -42,6 +42,8 @@ export type Candidato = Producto & {
   cobertura: number
   /** 0..1 — si coincidió con el término más discriminante del pedido. */
   relevancia: number
+  /** 0..1 — parecido semántico con el pedido. 0 si no hay índice de vectores. */
+  similitud: number
   puntaje: number
   motivo: string
 }
@@ -297,7 +299,12 @@ function lote(consulta: string, limite: number, soloVendibles = false) {
  *   1. Todos los términos con OR — buena cobertura, incluso cuando el cliente
  *      usa una palabra que el ERP no tiene.
  *   2. Solo el núcleo del pedido — garantiza que entren productos de ese tipo.
- * Se probó una tercera, filtrando a `Activo` con existencia, y se descartó: el
+ * Si se pasan `vecinos` —los productos más parecidos según el índice semántico—
+ * se suman al pozo y su similitud entra al puntaje. Eso es lo que rescata los
+ * casos que ninguna palabra alcanza: «hornillas» contra QUEMADORES, «blanca»
+ * contra BLANCO, o una PLANCHA DE ROPA distinguida de una PLANCHA DE CORCHO.
+ *
+ * Se probó una tercera consulta de texto, filtrando a `Activo` con existencia, y se descartó: el
  * filtro obliga a SQLite a recorrer todas las coincidencias del índice antes de
  * recortar —2.468 para "pintura"—, lo que llevó la consulta de 91 ms a 10,5 s
  * sin mejorar el resultado. El sesgo por disponibilidad tiene que vivir en el
@@ -311,9 +318,13 @@ function lote(consulta: string, limite: number, soloVendibles = false) {
  * catálogo: entraba UNA, y bloqueada.
  *
  */
-export function candidatos(texto: string, limite = 40): Candidato[] {
+export function candidatos(
+  texto: string,
+  limite = 40,
+  vecinos: { code: string; similitud: number }[] = [],
+): Candidato[] {
   const ts = terminos(texto)
-  if (ts.length === 0) return []
+  if (ts.length === 0 && vecinos.length === 0) return []
 
   const porCodigo = new Map<string, { p: Producto; bm25: number }>()
   const agregar = (filas: { p: Producto; bm25: number }[]) => {
@@ -324,24 +335,52 @@ export function candidatos(texto: string, limite = 40): Candidato[] {
     }
   }
 
-  agregar(lote(consultaFts(ts), limite * 3))
-  if (ts.length > 1) agregar(lote(consultaFts([ts[0]]), limite * 2))
+  if (ts.length > 0) {
+    agregar(lote(consultaFts(ts), limite * 3))
+    if (ts.length > 1) agregar(lote(consultaFts([ts[0]]), limite * 2))
+  }
+
+  // Los vecinos semánticos entran al pozo aunque no compartan ni una palabra:
+  // ese es exactamente el caso que vienen a resolver. Con bm25 en 0, se sostienen
+  // por su similitud.
+  const sim = new Map(vecinos.map((v) => [v.code, v.similitud]))
+  if (sim.size > 0) {
+    const faltantes = [...sim.keys()].filter((c) => !porCodigo.has(c))
+    if (faltantes.length > 0) {
+      const marcas = faltantes.map(() => '?').join(',')
+      const filas = db()
+        .prepare(`SELECT * FROM productos WHERE code IN (${marcas})`)
+        .all(...faltantes) as Producto[]
+      for (const p of filas) porCodigo.set(p.code, { p, bm25: 0 })
+    }
+  }
 
   if (porCodigo.size === 0) return []
 
   const ws = pesos(ts)
+  const hayVectores = sim.size > 0
+
   const scored = [...porCodigo.values()].map(({ p, bm25 }) => {
     const cob = cobertura(ts, ws, p)
+    const sm = sim.get(p.code) ?? 0
+    // Con índice semántico los pesos de texto se ceden en parte a la similitud.
+    // Sin él, el reparto queda como estaba y nada cambia.
+    const puntaje = hayVectores
+      ? 0.22 * bm25 + 0.20 * cob + 0.24 * posicionNucleo(ts, p) + 0.34 * sm + bonoDisponibilidad(p)
+      : 0.34 * bm25 + 0.28 * cob + 0.30 * posicionNucleo(ts, p) + bonoDisponibilidad(p)
+
     return {
       ...p,
       cobertura: cob,
       relevancia: relevancia(ts, ws, p),
-      puntaje:
-        0.34 * bm25 + 0.28 * cob + 0.30 * posicionNucleo(ts, p) + bonoDisponibilidad(p),
+      similitud: sm,
+      puntaje,
       motivo:
         cob >= 0.99
           ? 'Coincide con todo lo pedido'
-          : `Coincide con ${Math.round(cob * 100)}% de lo pedido`,
+          : sm >= 0.55 && cob < 0.5
+            ? 'Se parece a lo pedido, aunque el catálogo lo nombre distinto'
+            : `Coincide con ${Math.round(cob * 100)}% de lo pedido`,
     }
   })
 
@@ -350,13 +389,17 @@ export function candidatos(texto: string, limite = 40): Candidato[] {
 }
 
 /** Búsqueda manual desde el panel de variantes. */
-export function buscarLibre(texto: string, limite = 30) {
+export function buscarLibre(
+  texto: string,
+  limite = 30,
+  vecinos: { code: string; similitud: number }[] = [],
+) {
   const t = texto.trim()
   if (!t) return []
   const exacto = porCodigoOBarras(t)
-  const lista = candidatos(t, limite)
+  const lista = candidatos(t, limite, vecinos)
   if (exacto && !lista.some((c) => c.code === exacto.code)) {
-    return [{ ...exacto, cobertura: 1, relevancia: 1, puntaje: 1, motivo: 'Código exacto' }, ...lista].slice(0, limite)
+    return [{ ...exacto, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código exacto' }, ...lista].slice(0, limite)
   }
   return lista
 }
@@ -389,7 +432,11 @@ function aprendido(clienteNo: string, texto: string): Producto | null {
  * Resuelve una línea del pedido a un producto, con su nivel de confianza.
  * Sin llamadas de red: todo sale del espejo local.
  */
-export function resolver(texto: string, clienteNo = ''): Resolucion {
+export function resolver(
+  texto: string,
+  clienteNo = '',
+  vecinos: { code: string; similitud: number }[] = [],
+): Resolucion {
   const vacio: Resolucion = { confianza: 'sin_match', elegido: null, variantes: [], nota: null }
   if (!texto.trim()) return vacio
 
@@ -398,7 +445,7 @@ export function resolver(texto: string, clienteNo = ''): Resolucion {
   if (previo) {
     return {
       confianza: 'exacto',
-      elegido: { ...previo, cobertura: 1, relevancia: 1, puntaje: 1, motivo: 'Resuelto así en una cotización anterior' },
+      elegido: { ...previo, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Resuelto así en una cotización anterior' },
       variantes: candidatos(texto).filter((c) => c.code !== previo.code).slice(0, 8),
       nota: null,
     }
@@ -409,13 +456,13 @@ export function resolver(texto: string, clienteNo = ''): Resolucion {
   if (literal) {
     return {
       confianza: 'exacto',
-      elegido: { ...literal, cobertura: 1, relevancia: 1, puntaje: 1, motivo: 'Código exacto' },
+      elegido: { ...literal, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código exacto' },
       variantes: candidatos(literal.description).filter((c) => c.code !== literal.code).slice(0, 8),
       nota: null,
     }
   }
 
-  const lista = candidatos(texto)
+  const lista = candidatos(texto, 40, vecinos)
   if (lista.length === 0) {
     return { ...vacio, nota: 'No hay ningún producto que se parezca en el catálogo.' }
   }
@@ -440,7 +487,10 @@ export function resolver(texto: string, clienteNo = ''): Resolucion {
 
   // Si ni el mejor candidato coincide con la palabra que más pesa del pedido,
   // no hay nada que ofrecer: lo que salió es ruido del índice.
-  if (top.relevancia < 0.35) {
+  // La relevancia mide coincidencia de palabras, así que un producto traído por
+  // el índice semántico la tiene baja por definición. Si se parece de verdad, no
+  // se descarta por eso.
+  if (top.relevancia < 0.35 && top.similitud < 0.5) {
     return {
       confianza: 'sin_match',
       elegido: null,

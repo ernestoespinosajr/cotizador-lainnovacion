@@ -104,6 +104,14 @@ function migrar(d: DatabaseSync) {
       UNIQUE(clienteNo, textoNorm, code)
     );
 
+    -- Posición de cada producto dentro de data/vectores.bin. El hash permite
+    -- revectorizar solo lo que cambió tras una sincronización.
+    CREATE TABLE IF NOT EXISTS vectores (
+      code TEXT PRIMARY KEY,
+      pos  INTEGER NOT NULL,
+      hash TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS meta (
       clave TEXT PRIMARY KEY,
       valor TEXT NOT NULL

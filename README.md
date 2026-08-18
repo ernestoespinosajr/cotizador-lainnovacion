@@ -9,6 +9,7 @@ líneas— en una lista de productos revisada y lista para cotizar.
 npm install
 cp .env.local.example .env.local   # credenciales del ERP, pasarela NAV, clave del modelo
 npm run sync                       # trae el catálogo: ~3 min la primera vez
+npm run vectores                   # índice semántico: ~45 s, centavos de API
 npm run dev                        # http://localhost:3100
 ```
 

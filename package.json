@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start -p 3100",
     "sync": "node --experimental-strip-types scripts/sync-catalogo.ts",
-    "sync:clientes": "node --experimental-strip-types scripts/sync-catalogo.ts --solo=clientes"
+    "sync:clientes": "node --experimental-strip-types scripts/sync-catalogo.ts --solo=clientes",
+    "vectores": "node --experimental-strip-types scripts/build-vectores.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
