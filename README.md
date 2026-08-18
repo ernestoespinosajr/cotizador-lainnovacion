@@ -118,12 +118,16 @@ encabezado completo y su número de página, y los totales solo en la última.
 
 ### La capa de IA
 
+Usa **ChatGPT (OpenAI)** con *structured outputs* en modo estricto, así que la
+respuesta valida contra el esquema y no hay que defenderse de JSON mal formado. El
+modelo se cambia con `OPENAI_MODEL`, sin tocar código.
+
 El modelo nunca ve el catálogo: 63.702 productos son del orden de 1.3 millones de tokens. La
-recuperación es local y Claude solo razona sobre la lista corta de candidatos, en dos momentos —
+recuperación es local y ChatGPT solo razona sobre la lista corta de candidatos, en dos momentos —
 separar las líneas de un texto sucio, y reordenar y explicar los candidatos de lo que quedó
 dudoso. Lo que ya entró por código no se le manda.
 
-Sin `ANTHROPIC_API_KEY` todo funciona igual, con parseo por reglas y ranking por FTS. Es
+Sin `OPENAI_API_KEY` todo funciona igual, con parseo por reglas y ranking por FTS. Es
 notablemente peor en los casos semánticos: `lavadora carga frontal` termina en un repuesto de
 grifería porque ninguna señal de texto sabe que un BALANCIN no es una lavadora, y
 `refrigerador` no encuentra nada porque esa palabra no existe en el catálogo —el ERP dice
@@ -182,7 +186,7 @@ src/lib/erp.ts              Cliente del API de GestionIncidencias
 src/lib/db.ts               SQLite + FTS5 (node:sqlite, sin dependencia nativa)
 src/lib/buscar.ts           Recuperación, puntaje y triaje por confianza
 src/lib/parseo.ts           Texto libre y Excel → líneas, con trazabilidad de origen
-src/lib/ia.ts               Claude: extracción y reordenamiento
+src/lib/ia.ts               ChatGPT: extracción y reordenamiento
 src/lib/nav.ts              Pasarela NAV: consulta de cliente y emisión
 src/lib/pdf.ts              PDF de la cotización, con la marca Innova Centro
 src/lib/producto.ts         Reglas compartidas entre servidor y navegador

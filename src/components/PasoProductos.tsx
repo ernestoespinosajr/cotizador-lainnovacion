@@ -70,7 +70,7 @@ export default function PasoProductos({
         <EspinaConfianza conteo={conteo} filtro={filtro} onFiltrar={setFiltro} />
         {!ia && (
           <p className="mt-4 rounded-control border-l-4 border-linea bg-bruma px-4 py-2.5 text-xs leading-relaxed text-humo">
-            Sin <span className="cifra">ANTHROPIC_API_KEY</span>, las líneas se resuelven solo por
+            Sin <span className="cifra">OPENAI_API_KEY</span>, las líneas se resuelven solo por
             búsqueda de texto. El modelo es el que distingue casos como &quot;lavadora carga
             frontal&quot; de un repuesto que menciona la palabra lavadora.
           </p>

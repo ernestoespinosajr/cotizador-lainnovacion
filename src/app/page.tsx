@@ -10,7 +10,7 @@ import PasoProductos, { type LineaEstado } from '@/components/PasoProductos'
 import PasoSolicitud from '@/components/PasoSolicitud'
 import PasoCotizacion from '@/components/PasoCotizacion'
 
-const PASOS = ['Solicitud', 'Cliente', 'Productos', 'Cotización'] as const
+const PASOS = ['Cliente', 'Solicitud', 'Productos', 'Cotización'] as const
 
 export default function Page() {
   const [paso, setPaso] = useState(0)
@@ -20,9 +20,13 @@ export default function Page() {
   const [lineas, setLineas] = useState<LineaEstado[]>([])
   const [ia, setIa] = useState(false)
 
-  /** Solicitud y Cliente están siempre disponibles; los dos últimos no existen
-   *  hasta que hay líneas cargadas. */
-  const alcanzable = (i: number) => i <= 1 || lineas.length > 0
+  /**
+   * El cliente va primero y condiciona todo lo que sigue: define los precios que
+   * NAV va a aplicar, y su vocabulario aprendido resuelve líneas desde el primer
+   * análisis. Sin cliente no se puede ni interpretar bien la solicitud.
+   */
+  const alcanzable = (i: number) =>
+    i === 0 || (i === 1 && !!cliente) || (i >= 2 && lineas.length > 0)
 
   async function analizar(entrada: { texto?: string; archivo?: File }) {
     setCargando(true)
@@ -121,9 +125,9 @@ export default function Page() {
           {/*
             Móvil: barra segmentada en vez de cuatro pastillas que se desbordan
             a dos filas irregulares. Un stepper y no pestañas, porque los pasos
-            son una secuencia con bloqueo —Productos y Cotización no existen
-            hasta que hay una solicitud cargada—, y unas pestañas prometerían
-            cuatro destinos igual de disponibles.
+            son una secuencia con bloqueo —sin cliente no hay solicitud, y sin
+            solicitud no hay productos ni cotización—, y unas pestañas
+            prometerían cuatro destinos igual de disponibles.
 
             Es la misma forma que la espina de confianza del lote: que el
             progreso del flujo y el del lote se lean igual mantiene la
@@ -168,6 +172,22 @@ export default function Page() {
 
         {paso === 0 && (
           <Seccion
+            titulo="¿A quién se cotiza?"
+            bajada="Busca por nombre, RNC o código. De esto dependen los precios que va a aplicar el ERP."
+          >
+            <PasoCliente elegido={cliente} onElegir={setCliente} />
+            {cliente && (
+              // Con líneas ya cargadas el botón salta a Productos: volver a la
+              // solicitud obligaría a pasar por una pantalla que ya se usó.
+              <button type="button" className="boton mt-6" onClick={() => setPaso(lineas.length ? 2 : 1)}>
+                {lineas.length ? 'Ver los productos' : 'Cargar la solicitud'}
+              </button>
+            )}
+          </Seccion>
+        )}
+
+        {paso === 1 && (
+          <Seccion
             titulo="Pega la solicitud tal como llegó"
             bajada="Correo, WhatsApp o el Excel que mandó el cliente. No hace falta ordenarlo antes."
           >
@@ -175,25 +195,10 @@ export default function Page() {
           </Seccion>
         )}
 
-        {paso === 1 && (
-          <Seccion titulo="¿A quién se cotiza?" bajada="Busca por nombre, RNC o código.">
-            <PasoCliente elegido={cliente} onElegir={setCliente} />
-            {cliente && (
-              <button type="button" className="boton mt-6" onClick={() => setPaso(lineas.length ? 2 : 0)}>
-                {lineas.length ? 'Ver los productos' : 'Cargar la solicitud'}
-              </button>
-            )}
-          </Seccion>
-        )}
-
         {paso === 2 && (
           <Seccion
             titulo="Revisa lo que encontró"
-            bajada={
-              cliente
-                ? `Cotización para ${cliente.name}.`
-                : 'Todavía no elegiste cliente; puedes hacerlo en el paso 2.'
-            }
+            bajada={cliente ? `Cotización para ${cliente.name}.` : 'Falta elegir el cliente.'}
           >
             <PasoProductos lineas={lineas} setLineas={setLineas} ia={ia} />
             <button type="button" className="boton mt-6" onClick={() => setPaso(3)}>

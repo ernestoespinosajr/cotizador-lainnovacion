@@ -1,57 +1,95 @@
 /**
- * Capa de interpretación con Claude.
+ * Capa de interpretación con ChatGPT (OpenAI).
  *
  * Hace dos cosas, y ninguna es buscar: el modelo nunca ve el catálogo completo
- * —63.702 productos son del orden de 1.3 millones de tokens, no caben en el
+ * —63.702 productos son del orden de 1,3 millones de tokens, no caben en el
  * prompt ni tendría sentido el costo—. La recuperación ocurre en local
  * (buscar.ts) y el modelo solo razona sobre la lista corta de candidatos.
  *
  *   1 · Extraer líneas de un texto sucio de correo o WhatsApp.
  *   2 · Reordenar los candidatos de cada línea y explicar la elección.
  *
- * Sin ANTHROPIC_API_KEY todo cae al camino determinista: el cotizador funciona
+ * Sin OPENAI_API_KEY todo cae al camino determinista: el cotizador funciona
  * igual, con parseo por reglas y ranking por FTS.
  */
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import type { Candidato } from './buscar.ts'
 import type { LineaSolicitud } from './parseo.ts'
 import { parsearTexto } from './parseo.ts'
 
-const MODELO = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5'
+/**
+ * Cambiar de modelo es una variable de entorno. No se fija uno más nuevo por
+ * defecto porque no todas las cuentas tienen acceso a los mismos, y este trabajo
+ * —extraer y reordenar sobre listas cortas— no necesita el modelo más grande.
+ */
+const MODELO = process.env.OPENAI_MODEL ?? 'gpt-4.1'
 
-export const iaDisponible = () => Boolean(process.env.ANTHROPIC_API_KEY)
+export const iaDisponible = () => Boolean(process.env.OPENAI_API_KEY)
 
 function cliente() {
-  const apiKey = process.env.ANTHROPIC_API_KEY
+  const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) return null
-  return new Anthropic({ apiKey })
+  return new OpenAI({ apiKey })
+}
+
+/**
+ * Llama al modelo exigiendo una estructura exacta.
+ *
+ * `strict: true` obliga a que la respuesta valide contra el esquema, así que no
+ * hace falta parsear a mano ni defenderse de JSON mal formado. El esquema exige
+ * `additionalProperties: false` y que toda propiedad esté en `required`.
+ *
+ * No se fija `temperature` ni límite de tokens a propósito: varios modelos
+ * recientes rechazan esos parámetros y el esquema ya acota la salida.
+ */
+async function pedirJson<T>(
+  c: OpenAI,
+  nombre: string,
+  esquema: Record<string, unknown>,
+  system: string,
+  user: string,
+): Promise<T | null> {
+  const r = await c.chat.completions.create({
+    model: MODELO,
+    response_format: {
+      type: 'json_schema',
+      json_schema: { name: nombre, strict: true, schema: esquema },
+    },
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
+  })
+
+  const txt = r.choices[0]?.message?.content
+  if (!txt) return null
+  // El modelo puede negarse; en ese caso `refusal` viene lleno y `content` vacío.
+  return JSON.parse(txt) as T
 }
 
 // ── 1 · Extracción de líneas ────────────────────────────────────────────────
 
-const HERRAMIENTA_LINEAS = {
-  name: 'registrar_lineas',
-  description: 'Registra las líneas de producto encontradas en la solicitud.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      lineas: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            texto: { type: 'string', description: 'El producto pedido, sin la cantidad.' },
-            cantidad: { type: 'number' },
-            unidad: { type: ['string', 'null'] },
-            lineaOriginal: { type: 'number', description: 'Número de línea del texto de origen, 1-based.' },
-          },
-          required: ['texto', 'cantidad', 'lineaOriginal'],
+const ESQUEMA_LINEAS = {
+  type: 'object',
+  properties: {
+    lineas: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          texto: { type: 'string', description: 'El producto pedido, sin la cantidad.' },
+          cantidad: { type: 'number' },
+          unidad: { type: ['string', 'null'] },
+          lineaOriginal: { type: 'integer', description: 'Número de línea del texto de origen.' },
         },
+        required: ['texto', 'cantidad', 'unidad', 'lineaOriginal'],
+        additionalProperties: false,
       },
     },
-    required: ['lineas'],
   },
-}
+  required: ['lineas'],
+  additionalProperties: false,
+} as const
 
 const PROMPT_EXTRACCION = `Eres el asistente de cotizaciones de La Innovación, una tienda por departamentos dominicana.
 
@@ -63,7 +101,8 @@ Reglas:
 - Si no se indica cantidad, pon 1.
 - Ignora saludos, despedidas, firmas, direcciones, condiciones de pago y todo lo que no sea un producto.
 - No inventes productos que no estén en el texto. Si el mensaje no pide nada concreto, devuelve una lista vacía.
-- El texto viene con cada línea numerada como "N| contenido". Usa esa N en "lineaOriginal".`
+- El texto viene con cada línea numerada como "N| contenido". Usa esa N en "lineaOriginal".
+- Responde siempre en español dominicano, con tuteo.`
 
 export async function extraerLineas(texto: string): Promise<LineaSolicitud[]> {
   const c = cliente()
@@ -75,23 +114,13 @@ export async function extraerLineas(texto: string): Promise<LineaSolicitud[]> {
     .join('\n')
 
   try {
-    const r = await c.messages.create({
-      model: MODELO,
-      max_tokens: 8000,
-      system: PROMPT_EXTRACCION,
-      tools: [HERRAMIENTA_LINEAS],
-      tool_choice: { type: 'tool', name: 'registrar_lineas' },
-      messages: [{ role: 'user', content: numerado }],
-    })
+    const d = await pedirJson<{
+      lineas: { texto: string; cantidad: number; unidad: string | null; lineaOriginal: number }[]
+    }>(c, 'lineas_solicitud', ESQUEMA_LINEAS, PROMPT_EXTRACCION, numerado)
 
-    const uso = r.content.find((b) => b.type === 'tool_use')
-    if (!uso || uso.type !== 'tool_use') return parsearTexto(texto)
+    if (!d?.lineas) return parsearTexto(texto)
 
-    const { lineas } = uso.input as {
-      lineas: { texto: string; cantidad: number; unidad?: string | null; lineaOriginal: number }[]
-    }
-
-    return lineas
+    return d.lineas
       .filter((l) => l.texto?.trim().length >= 3)
       .map((l, i) => ({
         id: `ia${i}_${Date.now().toString(36)}`,
@@ -116,29 +145,27 @@ export type FalloIA = {
   motivo: string
 }
 
-const HERRAMIENTA_FALLOS = {
-  name: 'registrar_decisiones',
-  description: 'Registra, para cada línea, el producto elegido y la confianza.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      decisiones: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            code: { type: ['string', 'null'], description: 'Código del producto elegido, o null.' },
-            confianza: { type: 'string', enum: ['exacto', 'probable', 'ambiguo', 'sin_match'] },
-            motivo: { type: 'string', description: 'Una frase corta, en español, para el cotizador.' },
-          },
-          required: ['id', 'code', 'confianza', 'motivo'],
+const ESQUEMA_DECISIONES = {
+  type: 'object',
+  properties: {
+    decisiones: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          code: { type: ['string', 'null'], description: 'Código del producto elegido, o null.' },
+          confianza: { type: 'string', enum: ['exacto', 'probable', 'ambiguo', 'sin_match'] },
+          motivo: { type: 'string', description: 'Una frase corta, en español, para el cotizador.' },
         },
+        required: ['id', 'code', 'confianza', 'motivo'],
+        additionalProperties: false,
       },
     },
-    required: ['decisiones'],
   },
-}
+  required: ['decisiones'],
+  additionalProperties: false,
+} as const
 
 const PROMPT_RANKING = `Eres el asistente de cotizaciones de La Innovación. Para cada línea pedida por un cliente recibes una lista corta de candidatos del catálogo, ya filtrada por búsqueda de texto.
 
@@ -149,9 +176,11 @@ Elige el producto correcto de cada lista y clasifica tu confianza:
 - "sin_match": ningún candidato sirve. Pon code en null.
 
 Ten en cuenta:
-- Prefiere productos "Activo" y con existencia sobre "Descatalogado" o "Bloqueado", pero solo si de verdad corresponden a lo pedido. Nunca elijas un producto equivocado por tener stock.
+- Un candidato con estado "Bloqueado" no se puede cotizar: el ERP rechaza el documento completo. No lo elijas si hay cualquier otro que corresponda.
+- Prefiere productos "Activo" y con existencia sobre "Descatalogado", pero solo si de verdad corresponden a lo pedido. Nunca elijas un producto equivocado por tener stock.
+- Cuidado con los repuestos: un "NIPLE KDK" o un "TORNILLO ESTUFA" mencionan la marca o el tipo pero son piezas, no el aparato. Si piden un abanico, un repuesto de abanico no sirve.
 - Las medidas y capacidades tienen que coincidir: una nevera de 18 pies no sustituye a una de 12.
-- El "motivo" es para que un vendedor decida rápido. Una frase. Si es "sin_match", explica por qué no hay nada.
+- El "motivo" es para que un vendedor decida rápido. Una frase, en español dominicano con tuteo. Si es "sin_match", explica por qué no hay nada.
 - No inventes códigos. Solo puedes usar los códigos que aparecen en los candidatos.`
 
 /** Un lote chico mantiene el prompt manejable y permite paralelizar. */
@@ -183,7 +212,7 @@ export async function reordenar(
 }
 
 async function procesarLote(
-  c: Anthropic,
+  c: OpenAI,
   lote: { id: string; texto: string; candidatos: Candidato[] }[],
 ): Promise<FalloIA[]> {
   const payload = lote.map((l) => ({
@@ -194,27 +223,24 @@ async function procesarLote(
       descripcion: [k.description, k.description2].filter(Boolean).join(' '),
       estado: k.itemStatus,
       existencia: k.inventory,
-      precio: k.unitPrice,
+      precioLista: k.unitPrice,
     })),
   }))
 
-  const r = await c.messages.create({
-    model: MODELO,
-    max_tokens: 4000,
-    system: PROMPT_RANKING,
-    tools: [HERRAMIENTA_FALLOS],
-    tool_choice: { type: 'tool', name: 'registrar_decisiones' },
-    messages: [{ role: 'user', content: JSON.stringify(payload, null, 1) }],
-  })
+  const d = await pedirJson<{ decisiones: FalloIA[] }>(
+    c,
+    'decisiones_cotizador',
+    ESQUEMA_DECISIONES,
+    PROMPT_RANKING,
+    JSON.stringify(payload, null, 1),
+  )
 
-  const uso = r.content.find((b) => b.type === 'tool_use')
-  if (!uso || uso.type !== 'tool_use') return []
+  if (!d?.decisiones) return []
 
-  const { decisiones } = uso.input as { decisiones: FalloIA[] }
   const validos = new Set(lote.flatMap((l) => l.candidatos.map((k) => k.code)))
 
   // El modelo no debería devolver un código que no estaba entre los candidatos,
   // pero si pasa se descarta en vez de arrastrar un producto inventado hasta la
   // cotización.
-  return decisiones.filter((d) => d.code === null || validos.has(d.code))
+  return d.decisiones.filter((x) => x.code === null || validos.has(x.code))
 }

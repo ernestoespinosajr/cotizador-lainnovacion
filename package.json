@@ -11,9 +11,9 @@
     "sync:clientes": "node --experimental-strip-types scripts/sync-catalogo.ts --solo=clientes"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.68.0",
     "exceljs": "^4.4.0",
     "next": "^15.5.4",
+    "openai": "^7.5.0",
     "pdfkit": "^0.19.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
