@@ -14,6 +14,7 @@
  * piden. Ver components/PanelVariantes.tsx.
  */
 import { db } from './db.ts'
+import { cotizable } from './producto.ts'
 
 export type Producto = {
   code: string
@@ -33,6 +34,8 @@ export type Producto = {
 }
 
 export type Confianza = 'exacto' | 'probable' | 'ambiguo' | 'sin_match'
+
+export { cotizable }
 
 export type Candidato = Producto & {
   /** 0..1 — porción del pedido, pesada por rareza, que aparece en el producto. */
@@ -356,9 +359,18 @@ export function resolver(texto: string, clienteNo = ''): Resolucion {
     return { ...vacio, nota: 'No hay ningún producto que se parezca en el catálogo.' }
   }
 
-  const [top, segundo] = lista
+  // Un producto bloqueado no se puede cotizar, así que no puede ser la elección
+  // por defecto mientras exista un candidato viable. Sigue apareciendo entre las
+  // variantes: al vendedor le sirve saber que el artículo existe pero está
+  // frenado en el ERP.
+  const ordenada =
+    cotizable(lista[0]) || !lista.some(cotizable)
+      ? lista
+      : [...lista.filter(cotizable), ...lista.filter((c) => !cotizable(c))]
+
+  const [top, segundo] = ordenada
   const margen = segundo ? top.puntaje - segundo.puntaje : 1
-  const variantes = lista.slice(1, 9)
+  const variantes = ordenada.slice(1, 9)
 
   // 3 · Descripción idéntica: no es solo alta confianza, es certeza.
   if (normalizar(top.description) === normalizar(texto)) {
@@ -371,7 +383,7 @@ export function resolver(texto: string, clienteNo = ''): Resolucion {
     return {
       confianza: 'sin_match',
       elegido: null,
-      variantes: lista.slice(0, 8),
+      variantes: ordenada.slice(0, 8),
       nota: 'Nada en el catálogo se parece a lo pedido. Busca a mano si conoces el producto.',
     }
   }
@@ -387,16 +399,17 @@ export function resolver(texto: string, clienteNo = ''): Resolucion {
     elegido: top,
     variantes,
     nota:
-      margen < 0.12
+      notaEstado(top) ??
+      (margen < 0.12
         ? 'Hay varios productos parecidos entre sí. Conviene confirmar cuál es.'
-        : 'La coincidencia es parcial. Conviene confirmar.',
+        : 'La coincidencia es parcial. Conviene confirmar.'),
   }
 }
 
 /** Advertencia sobre el producto elegido, aunque la coincidencia sea buena. */
 function notaEstado(p: Producto): string | null {
-  if (p.itemStatus === 'Descatalogado') return 'Producto descatalogado.'
-  if (p.itemStatus === 'Bloqueado') return 'Producto bloqueado en el ERP.'
+  if (!cotizable(p)) return 'Bloqueado en el ERP: no se puede cotizar. Hay que elegir otro.'
+  if (p.itemStatus === 'Descatalogado') return 'Producto descatalogado, pero se puede cotizar.'
   if (p.inventory <= 0) return 'Sin existencia en ninguna ubicación.'
   return null
 }

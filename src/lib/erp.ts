@@ -150,3 +150,24 @@ export async function contarProductos() {
   const r = await get<ProductoERP>('/api/catalogos/productos', { page: 1, pageSize: 1 })
   return r.total ?? 0
 }
+
+export type UsuarioErp = { firstName: string; lastName: string; email: string; role: string }
+
+/**
+ * Usuario de la sesión del ERP. Es quien firma la cotización como COTIZADOR en
+ * el PDF, distinto del vendedor de la cuenta que asigna NAV.
+ */
+export async function usuarioActual(): Promise<UsuarioErp | null> {
+  try {
+    const res = await fetch(`${base()}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${await token()}` },
+      signal: AbortSignal.timeout(20_000),
+      cache: 'no-store',
+    })
+    if (!res.ok) return null
+    return (await res.json()) as UsuarioErp
+  } catch {
+    // El nombre del cotizador es cosmético: si falla, la cotización se emite igual.
+    return null
+  }
+}

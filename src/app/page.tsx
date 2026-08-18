@@ -4,10 +4,11 @@ import Image from 'next/image'
 import { useState } from 'react'
 import type { ClienteFicha } from '@/app/api/clientes/route'
 import type { LineaResuelta } from '@/app/api/solicitud/route'
+import { cotizable } from '@/lib/producto'
 import PasoCliente from '@/components/PasoCliente'
 import PasoProductos, { type LineaEstado } from '@/components/PasoProductos'
 import PasoSolicitud from '@/components/PasoSolicitud'
-import { Proximamente } from '@/components/ui'
+import PasoCotizacion from '@/components/PasoCotizacion'
 
 const PASOS = ['Solicitud', 'Cliente', 'Productos', 'Cotización'] as const
 
@@ -52,8 +53,12 @@ export default function Page() {
           elegido: l.resolucion.elegido,
           // Lo dudoso entra desmarcado a propósito: incluir por defecto algo que
           // el sistema no tiene claro es la forma más fácil de que una línea
-          // equivocada llegue al cliente.
-          incluida: l.resolucion.confianza === 'exacto' || l.resolucion.confianza === 'probable',
+          // equivocada llegue al cliente. Un producto bloqueado nunca entra
+          // marcado, porque NAV rechazaría la cotización completa por su culpa.
+          incluida:
+            (l.resolucion.confianza === 'exacto' || l.resolucion.confianza === 'probable') &&
+            !!l.resolucion.elegido &&
+            cotizable(l.resolucion.elegido),
         })),
       )
       setPaso(2)
@@ -198,43 +203,14 @@ export default function Page() {
         )}
 
         {paso === 3 && (
-          <Seccion titulo="Emitir la cotización" bajada="Este paso todavía no existe del lado del ERP.">
-            <div className="max-w-3xl space-y-5">
-              <Proximamente detalle="El ERP no tiene ningún endpoint que escriba: no hay POST de cotización, ni numeración, ni PDF. Tampoco hay forma de pedir el precio que le corresponde a este cliente con su descuento y su ITBIS, así que emitirla hoy daría un documento con el precio de lista genérico. Ver docs/SOLICITUD_ENDPOINTS.md §3.2 y §3.3.">
-                Emisión, numeración y PDF de la cotización
-              </Proximamente>
-
-              <div className="rounded-caja border border-linea p-5">
-                <div className="etiqueta">Lo que sí queda guardado</div>
-                <p className="mt-2 text-sm leading-relaxed">
-                  Cada línea que corregiste a mano se registra como vocabulario de este cliente. Los
-                  clientes repiten su forma de nombrar las cosas, así que esas correcciones hacen que
-                  la próxima solicitud entre resuelta sin que nadie las revise. Cuando los endpoints
-                  existan, el sistema arranca con ese aprendizaje ya hecho.
-                </p>
-                <button
-                  type="button"
-                  className="boton mt-4"
-                  onClick={async () => {
-                    await fetch('/api/cotizacion', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({
-                        clienteNo: cliente?.no ?? '',
-                        lineas: lineas
-                          .filter((l) => l.incluida && l.elegido)
-                          .map((l) => ({ texto: l.texto, code: l.elegido!.code })),
-                      }),
-                    })
-                    setPaso(2)
-                  }}
-                >
-                  Guardar las correcciones
-                </button>
-              </div>
-            </div>
+          <Seccion
+            titulo="Emitir la cotización"
+            bajada="El ERP calcula los precios del cliente y devuelve el documento con su número."
+          >
+            <PasoCotizacion cliente={cliente} lineas={lineas} onVolver={() => setPaso(2)} />
           </Seccion>
         )}
+
       </main>
     </div>
   )

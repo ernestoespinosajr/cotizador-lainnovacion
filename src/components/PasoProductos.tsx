@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import type { Candidato, Confianza } from '@/lib/buscar'
+import { cotizable } from '@/lib/producto'
 import type { LineaResuelta } from '@/app/api/solicitud/route'
 import EspinaConfianza from './EspinaConfianza'
 import PanelVariantes, { Estado, Existencia } from './PanelVariantes'
@@ -32,7 +33,6 @@ export default function PasoProductos({
   const activa = lineas.find((l) => l.id === abierta) ?? null
 
   const incluidas = lineas.filter((l) => l.incluida && l.elegido)
-  const totalEstimado = incluidas.reduce((s, l) => s + (l.elegido?.unitPrice ?? 0) * l.cantidad, 0)
 
   const actualizar = (id: string, cambio: Partial<LineaEstado>) =>
     setLineas((prev) => prev.map((l) => (l.id === id ? { ...l, ...cambio } : l)))
@@ -84,7 +84,7 @@ export default function PasoProductos({
           <span className="etiqueta">Cant.</span>
           <span className="etiqueta">Producto</span>
           <span className="etiqueta">Existencia</span>
-          <span className="etiqueta text-right">Precio</span>
+          <span className="etiqueta text-right">Precio de lista</span>
           <span />
         </div>
 
@@ -123,9 +123,15 @@ export default function PasoProductos({
         )}
       </div>
 
-      {/* Fija al pie: con 100 líneas el total queda siempre a la vista sin tener
-          que volver arriba. En móvil se compacta a una línea, porque si no se
-          come un cuarto de la pantalla y tapa las filas. */}
+      {/*
+        Al pie va el conteo, no un total.
+
+        El precio del espejo es la lista genérica y NAV aplica el grupo del
+        cliente: para el ítem 001010 el espejo dice 5.995,00 y NAV devuelve
+        5.000,00 a un cliente y 4.152,54 a otro. Un total con 31% de error es
+        peor que ningún total, porque el vendedor se lo canta al cliente por
+        teléfono. El monto real aparece en el paso 4, calculado por el ERP.
+      */}
       <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-4 rounded-caja border-2 border-tinta bg-papel px-4 py-2.5 md:px-5 md:py-4">
         <div>
           <div className="etiqueta hidden md:block">Seleccionadas</div>
@@ -134,15 +140,9 @@ export default function PasoProductos({
             <span className="text-humo"> de {lineas.length} líneas</span>
           </p>
         </div>
-        <div className="text-right">
-          <div className="etiqueta">
-            <span className="md:hidden">Estimado</span>
-            <span className="hidden md:inline">Estimado, sin ITBIS ni descuentos</span>
-          </div>
-          <p className="cifra text-base font-bold md:mt-0.5 md:text-lg">
-            {pesos.format(totalEstimado)}
-          </p>
-        </div>
+        <p className="max-w-xs text-right text-xs leading-snug text-humo">
+          Los precios son de lista. El ERP aplica el grupo del cliente al emitir.
+        </p>
       </div>
 
       {activa && (
@@ -195,6 +195,9 @@ function Fila({
   const p = linea.elegido
   const pideAtencion = linea.resolucion.confianza === 'ambiguo' || linea.resolucion.confianza === 'sin_match'
   const manual = linea.origen.tipo === 'manual'
+  // NAV rechaza el documento entero si una línea lleva un producto bloqueado, así
+  // que la casilla se deshabilita: no es una preferencia, es un impedimento.
+  const bloqueado = !!p && !cotizable(p)
 
   return (
     <div
@@ -208,8 +211,8 @@ function Fila({
         <input
           type="checkbox"
           className="h-4 w-4 accent-[#e91f29]"
-          checked={linea.incluida}
-          disabled={!p}
+          checked={linea.incluida && !bloqueado}
+          disabled={!p || bloqueado}
           onChange={(e) => onCambiar({ incluida: e.target.checked })}
           aria-label={`Incluir ${p?.description ?? linea.texto}`}
         />
@@ -246,8 +249,8 @@ function Fila({
             </span>
           </>
         )}
-        {p && pideAtencion && linea.resolucion.nota && (
-          <span className={`mt-1 block text-xs font-semibold ${estado.texto}`}>
+        {p && (bloqueado || pideAtencion) && linea.resolucion.nota && (
+          <span className={`mt-1 block text-xs font-semibold ${bloqueado ? 'text-rojo' : estado.texto}`}>
             {linea.resolucion.nota}
           </span>
         )}

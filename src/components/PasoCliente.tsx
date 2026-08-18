@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import type { ClienteFicha } from '@/app/api/clientes/route'
-import { Etiqueta, Proximamente } from './ui'
+import type { SituacionCliente } from '@/app/api/clientes/[no]/route'
+import { Etiqueta, pesos } from './ui'
 
 export default function PasoCliente({
   elegido,
@@ -84,14 +85,34 @@ export default function PasoCliente({
 }
 
 function Ficha({ cliente, onCambiar }: { cliente: ClienteFicha; onCambiar: () => void }) {
+  const [nav, setNav] = useState<SituacionCliente | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // La situación financiera se consulta al elegir el cliente, no al buscar: esta
+  // llamada llega hasta NAV y tarda ~1,5 s, mientras la búsqueda es local.
+  useEffect(() => {
+    let vivo = true
+    setNav(null)
+    setError(null)
+    fetch(`/api/clientes/${encodeURIComponent(cliente.no)}`)
+      .then(async (r) => {
+        const d = await r.json()
+        if (!vivo) return
+        if (r.ok) setNav(d.cliente)
+        else setError(d.error ?? 'No se pudo consultar la situación del cliente.')
+      })
+      .catch((e) => vivo && setError(String(e)))
+    return () => {
+      vivo = false
+    }
+  }, [cliente.no])
+
   return (
     <div className="max-w-3xl">
       <div className="overflow-hidden rounded-caja border-2 border-tinta">
         <div className="flex items-start justify-between gap-4 border-b-2 border-tinta bg-tinta px-5 py-4 text-papel">
           <div className="min-w-0">
             <div className="etiqueta !text-papel/55">Cliente {cliente.no}</div>
-            {/* Dos líneas en vez de recortar: las razones sociales dominicanas
-                son largas y "INNOVACION MAR…" no le sirve a nadie. */}
             <h2 className="titulo mt-1 line-clamp-3 text-lg leading-tight sm:line-clamp-2 sm:text-xl">
               {cliente.name}
             </h2>
@@ -106,21 +127,67 @@ function Ficha({ cliente, onCambiar }: { cliente: ClienteFicha; onCambiar: () =>
           <Dato rotulo="Contacto">{cliente.contacto || '—'}</Dato>
           <Dato rotulo="Teléfonos">{cliente.telefonos.join(' · ') || '—'}</Dato>
           <Dato rotulo="Correo">{cliente.correos.join(' · ') || '—'}</Dato>
-          <Dato rotulo="Estatus en el ERP">
-            <span className={cliente.blocked > 0 ? 'font-bold text-ambar' : ''}>
-              {cliente.bloqueoTexto}
-            </span>
+          <Dato rotulo="Condición de pago">
+            {nav ? nav.condicionPago || '—' : <Cargando />}
           </Dato>
+          <Dato rotulo="Grupo de precio">{nav ? nav.grupoPrecio || '—' : <Cargando />}</Dato>
         </dl>
       </div>
 
-      <div className="mt-5">
-        <Proximamente detalle="El ERP no expone hoy saldos ni cuentas por cobrar: el único indicador disponible es el bloqueo que se ve arriba, que dice si el cliente está frenado pero no cuánto debe ni desde cuándo. Falta el endpoint de estado de cuenta (docs/SOLICITUD_ENDPOINTS.md §3.1).">
-          Balance, deuda vencida y crédito disponible
-        </Proximamente>
+      {/* Situación financiera: es lo que decide si conviene cotizarle. */}
+      <div className="mt-5 rounded-caja border border-linea p-5">
+        <Etiqueta>Situación en el ERP</Etiqueta>
+
+        {error && (
+          <p className="mt-3 rounded-control border-l-4 border-rojo bg-bruma px-4 py-3 text-sm">
+            {error}
+          </p>
+        )}
+
+        {!nav && !error && <p className="mt-3 text-sm text-humo">Consultando el ERP…</p>}
+
+        {nav && (
+          <>
+            <dl className="mt-3 grid gap-x-8 gap-y-4 sm:grid-cols-3">
+              <Dato rotulo="Límite de crédito">
+                <span className="cifra">{pesos.format(nav.limite)}</span>
+              </Dato>
+              <Dato rotulo={nav.balance < 0 ? 'Saldo a favor' : 'Balance'}>
+                <span className={`cifra ${nav.debe ? 'font-bold text-ambar' : ''}`}>
+                  {pesos.format(Math.abs(nav.balance))}
+                </span>
+              </Dato>
+              <Dato rotulo="Crédito disponible">
+                <span className="cifra font-bold">
+                  {nav.disponible == null ? 'sin límite' : pesos.format(nav.disponible)}
+                </span>
+              </Dato>
+            </dl>
+
+            {/* Un bloqueo de facturación no es un aviso: NAV rechaza la cotización.
+                Conviene saberlo antes de armar cien líneas, no al emitir. */}
+            {nav.impideCotizar ? (
+              <p className="mt-4 rounded-control border-l-4 border-rojo bg-bruma px-4 py-3 text-sm">
+                <span className="font-bold">
+                  Este cliente está bloqueado para {nav.bloqueo === 'All' ? 'todo' : 'facturación'}.
+                </span>{' '}
+                El ERP va a rechazar la cotización. Hay que liberarlo antes de emitirla.
+              </p>
+            ) : nav.bloqueo ? (
+              <p className="mt-4 text-sm text-ambar">
+                <span className="font-semibold">Bloqueado para envío.</span> Se puede cotizar, pero
+                no despachar.
+              </p>
+            ) : null}
+          </>
+        )}
       </div>
     </div>
   )
+}
+
+function Cargando() {
+  return <span className="text-humo">…</span>
 }
 
 function Dato({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {

@@ -1,38 +1,75 @@
 import { NextResponse } from 'next/server'
 import { aprender } from '@/lib/buscar'
+import { crearCotizacion, ErrorNav, nuevaReferencia, type CotizacionNav } from '@/lib/nav'
+import { usuarioActual } from '@/lib/erp'
 
 export const runtime = 'nodejs'
+export const maxDuration = 180
+
+export type RespuestaCotizacion = {
+  cotizacion: CotizacionNav
+  referencia: string
+  /** Nombre del cotizador, para el campo COTIZADOR del PDF. */
+  cotizador: string
+}
 
 /**
- * Emisión de la cotización — pendiente de backend.
+ * Emite la cotización en el ERP.
  *
- * El ERP no expone hoy ningún endpoint que escriba: no hay POST de cotización,
- * ni numeración, ni precio por cliente, ni ITBIS. Ver docs/SOLICITUD_ENDPOINTS.md
- * §3.2 y §3.3, que ya especifican lo que hace falta pedir.
- *
- * Lo que sí se guarda desde ya son las correcciones del cotizador: cada línea
- * que resolvió a mano alimenta el aprendizaje, así que cuando los endpoints
- * existan el sistema llega con meses de vocabulario de sus clientes aprendido.
+ * NAV es el motor de precios: aquí solo viajan códigos y cantidades, y la
+ * respuesta trae los precios del grupo del cliente, los descuentos y el ITBIS.
+ * Es la única forma de conocer el precio real —no existe servicio de consulta de
+ * precios—, así que esta llamada es a la vez el cálculo y la persistencia.
  */
 export async function POST(req: Request) {
-  const { clienteNo, lineas } = (await req.json()) as {
+  const { clienteNo, ubicacion, lineas } = (await req.json()) as {
     clienteNo?: string
-    lineas?: { texto: string; code: string }[]
+    ubicacion?: string
+    lineas?: { code: string; cantidad: number; texto?: string }[]
   }
 
-  for (const l of lineas ?? []) {
-    if (l.code && l.texto) aprender(clienteNo ?? '', l.texto, l.code)
+  const items = (lineas ?? []).filter((l) => l.code && l.cantidad > 0)
+
+  if (!clienteNo) {
+    return NextResponse.json({ error: 'Falta elegir el cliente.' }, { status: 400 })
+  }
+  if (items.length === 0) {
+    return NextResponse.json({ error: 'No hay líneas seleccionadas.' }, { status: 400 })
   }
 
-  return NextResponse.json(
-    {
-      pendiente: true,
-      guardado: (lineas ?? []).length,
-      mensaje:
-        'La selección quedó registrada, pero la cotización todavía no se puede emitir: ' +
-        'el ERP no tiene endpoint para crearla ni para dar el precio con ITBIS del cliente.',
-      requiere: ['POST /api/cotizaciones', 'POST /api/catalogos/productos/cotizar'],
-    },
-    { status: 501 },
-  )
+  // La referencia se genera acá y se devuelve siempre, incluso si NAV falla:
+  // si la respuesta se pierde en la red la cotización pudo quedar creada, y esta
+  // es la única pista para buscarla a mano en el ERP.
+  const referencia = nuevaReferencia()
+
+  try {
+    const cotizacion = await crearCotizacion({
+      clienteNo,
+      referencia,
+      ubicacion,
+      lineas: items.map((l) => ({ code: l.code, cantidad: l.cantidad })),
+    })
+
+    // Emitida sin problemas: las correcciones del cotizador pasan a ser
+    // vocabulario de este cliente para la próxima solicitud.
+    for (const l of items) {
+      if (l.texto) aprender(clienteNo, l.texto, l.code)
+    }
+
+    const u = await usuarioActual()
+    const cotizador = u ? `${u.firstName} ${u.lastName}`.trim() : ''
+
+    return NextResponse.json({ cotizacion, referencia, cotizador } satisfies RespuestaCotizacion)
+  } catch (e) {
+    if (e instanceof ErrorNav) {
+      return NextResponse.json(
+        { error: e.message, codigo: e.codigo, referencia },
+        { status: 502 },
+      )
+    }
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Error inesperado', referencia },
+      { status: 500 },
+    )
+  }
 }

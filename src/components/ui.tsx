@@ -43,19 +43,6 @@ export const ESTADOS: Record<
   },
 }
 
-/** Marca lo que aún no se puede hacer porque falta el endpoint en el ERP. */
-export function Proximamente({ children, detalle }: { children: React.ReactNode; detalle?: string }) {
-  return (
-    <div className="rounded-caja border border-dashed border-linea bg-bruma p-5">
-      <div className="flex items-center gap-2">
-        <span className="etiqueta rounded-[3px] bg-tinta px-1.5 py-0.5 !text-papel">Próximamente</span>
-        <span className="text-sm font-semibold">{children}</span>
-      </div>
-      {detalle && <p className="mt-2 max-w-prose text-sm leading-relaxed text-humo">{detalle}</p>}
-    </div>
-  )
-}
-
 export function Etiqueta({ children }: { children: React.ReactNode }) {
   return <div className="etiqueta">{children}</div>
 }

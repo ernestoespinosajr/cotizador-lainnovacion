@@ -7,10 +7,22 @@ líneas— en una lista de productos revisada y lista para cotizar.
 
 ```bash
 npm install
-cp .env.local.example .env.local   # credenciales del ERP y clave del modelo
+cp .env.local.example .env.local   # credenciales del ERP, pasarela NAV, clave del modelo
 npm run sync                       # trae el catálogo: ~3 min la primera vez
 npm run dev                        # http://localhost:3100
 ```
+
+Hace falta además que **SoapProxyNav esté corriendo** y que `NAV_PROXY_URL`
+apunte a él: sin eso los pasos 2 y 4 no funcionan, aunque la búsqueda de
+productos siga andando contra el espejo local.
+
+```bash
+cd ../Api_Mobilinventory && dotnet run
+```
+
+Ese proyecto fija el puerto 5000 en el código. En macOS lo ocupa el receptor de
+AirPlay, así que hay que desactivarlo (Ajustes → General → AirDrop y Handoff) o
+pedirle al desarrollador que lo haga configurable.
 
 `npm run sync` es obligatorio antes del primer arranque: sin el espejo local la app no puede
 buscar nada. Conviene dejarlo en un cron de madrugada.
@@ -19,8 +31,21 @@ buscar nada. Conviene dejarlo en un cron de madrugada.
 
 ```
 Solicitud ──► Cliente ──► Productos ──► Cotización
- texto/Excel   ERP vivo    espejo local   ⏳ falta backend
+ texto/Excel   NAV vivo    espejo local   NAV vivo → PDF
 ```
+
+Dos integraciones distintas, cada una por lo que sabe hacer:
+
+| | Para qué | Latencia |
+|---|---|---|
+| **GestionIncidencias** (`/api/catalogos/*`) | Volcar el catálogo al espejo local | 9-26 s, solo para sincronizar |
+| **SoapProxyNav** → NAV | Balance y crédito del cliente, y emitir la cotización | 1,5 s la consulta, 4-8 s la emisión |
+
+La pasarela NAV expone dos servicios y nada más (se sondearon otros diez y
+devuelven «Unknown Request_ID»): `LI_QUERY_CUSTOMER` y `LI_CREATE_QUOTE`. El
+segundo es a la vez el motor de precios y la persistencia, porque **NAV aplica el
+grupo de precio del cliente** y no hay forma de consultar precios sin crear el
+documento.
 
 **El catálogo se espeja en local.** El endpoint de productos del ERP tarda entre 9 y 26 segundos
 por petición sin importar los filtros: una búsqueda por código de barras que devuelve 394 bytes
@@ -81,6 +106,16 @@ match correcto.
 Lo dudoso entra desmarcado a propósito. Incluir por defecto algo que el sistema no tiene claro es
 la forma más fácil de que una línea equivocada llegue al cliente.
 
+### La marca del PDF
+
+La interfaz interna lleva la identidad de **La Innovación** (negro y rojo), pero el
+PDF que recibe el cliente lleva la de **Innova Centro** (verde y naranja), calcada
+del modelo en `docs/referencias/`. Innova Centro es la marca comercial y «LA
+INNOVACION SAS» la razón social, que aparece junto al RNC.
+
+El documento pagina solo: con sesenta líneas salen tres hojas, cada una con el
+encabezado completo y su número de página, y los totales solo en la última.
+
 ### La capa de IA
 
 El modelo nunca ve el catálogo: 63.702 productos son del orden de 1.3 millones de tokens. La
@@ -100,18 +135,44 @@ Cada corrección del cotizador se guarda como vocabulario de ese cliente (tabla 
 Los clientes repiten su forma de nombrar las cosas, así que esas correcciones hacen que la
 próxima solicitud entre resuelta. Ya funciona, aunque el paso de emisión todavía no exista.
 
-## Lo que falta y por qué
+## El precio de lista no es el precio del cliente
 
-Tres endpoints del ERP bloquean el cierre del circuito. Están especificados con su JSON y su
-tabla de NAV en [`docs/SOLICITUD_ENDPOINTS.md`](docs/SOLICITUD_ENDPOINTS.md):
+Es la trampa más importante del sistema. Para el ítem `001010`:
+
+| Origen | Precio |
+|---|---|
+| Espejo local (lista genérica) | 5.995,00 |
+| Cliente 004789, grupo PCOMERCIAL | 5.000,00 |
+| Cliente 018667, grupo MAYOR | 4.152,54 |
+
+Hasta 31% de diferencia. Por eso el paso 3 rotula los precios como **de lista** y
+**no muestra ningún total**: un total con ese margen de error es peor que ninguno,
+porque el vendedor se lo canta al cliente por teléfono. El monto real aparece solo
+al emitir, calculado por NAV.
+
+## Un producto bloqueado tumba la cotización completa
+
+Verificado estado por estado contra el ERP: `Activo`, `Descatalogado` y
+`Sustituto` se cotizan sin problema, pero `Bloqueado` hace que NAV rechace **todo
+el documento** con `Blocked must be equal to 'No' in Item`. Una línea mala en cien
+tira el pedido entero.
+
+Por eso hay tres defensas: la búsqueda no elige un bloqueado si existe alternativa
+viable, la casilla de esa línea queda deshabilitada, y el paso 4 se niega a emitir
+y nombra las líneas culpables. Lo mismo con el cliente: un bloqueo de facturación
+se avisa en el paso 2, porque NAV también rechaza por eso.
+
+## Lo que falta pedirle al backend
+
+Nada bloqueante. Cuatro mejoras, todas de un campo, documentadas en
+[`docs/SOLICITUD_ENDPOINTS.md`](docs/SOLICITUD_ENDPOINTS.md):
 
 | Falta | Efecto hoy |
 |---|---|
-| Estado de cuenta del cliente | Solo se ve el `blocked` de NAV: si está frenado, no cuánto debe. |
-| `POST` de cotización | No se puede emitir. Ningún endpoint del ERP escribe. |
-| Precio e ITBIS por cliente | El precio mostrado es de lista, sin impuesto ni descuentos. |
-
-En la interfaz eso aparece marcado como **Próximamente**, con la explicación a la vista.
+| `SalespersonName` en la respuesta | El PDF imprime el código del vendedor (`159`) en vez de su nombre |
+| `LocationName` | Igual con la tienda: imprime `03` y no «TIENDA CHARLES DE GAULLE» |
+| Consulta de precios por cliente | El paso 3 muestra precios de lista; con esto mostraría los reales |
+| Consulta de cotización por referencia | Si se corta la red, la cotización queda creada y su número es irrecuperable |
 
 ## Estructura
 
@@ -122,6 +183,9 @@ src/lib/db.ts               SQLite + FTS5 (node:sqlite, sin dependencia nativa)
 src/lib/buscar.ts           Recuperación, puntaje y triaje por confianza
 src/lib/parseo.ts           Texto libre y Excel → líneas, con trazabilidad de origen
 src/lib/ia.ts               Claude: extracción y reordenamiento
+src/lib/nav.ts              Pasarela NAV: consulta de cliente y emisión
+src/lib/pdf.ts              PDF de la cotización, con la marca Innova Centro
+src/lib/producto.ts         Reglas compartidas entre servidor y navegador
 src/app/api/               Rutas: solicitud, clientes, productos, cotización
 src/components/            Interfaz
 ```
