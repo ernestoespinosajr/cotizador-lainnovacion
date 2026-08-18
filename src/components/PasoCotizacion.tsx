@@ -178,6 +178,16 @@ function Resultado({
   const t = c.Totals
   const n = (v: string) => Number(v) || 0
 
+  /*
+   * Líneas que el ERP valoró en cero.
+   *
+   * No significa que el producto no tenga precio: puede tenerlo en el catálogo y
+   * no tenerlo en la lista del grupo del cliente. NAV no avisa, devuelve 0 y sigue
+   * —una LAVADORA FRIGIDAIRE de RD$53.990 salió en 0.00 para el grupo PCOMERCIAL—.
+   * Sin este control la cotización se le manda al cliente regalando el producto.
+   */
+  const sinPrecio = c.Lineas.filter((l) => n(l.UnitPrice) === 0)
+
   return (
     <div className="max-w-4xl">
       <div className="overflow-hidden rounded-caja border-2 border-tinta">
@@ -211,7 +221,11 @@ function Resultado({
                     {l.Description2 && <span className="block text-xs text-humo">{l.Description2}</span>}
                   </td>
                   <td className="cifra px-3 py-2 text-right">{n(l.Quantity)}</td>
-                  <td className="cifra px-3 py-2 text-right">{pesos.format(n(l.UnitPrice))}</td>
+                  <td
+                    className={`cifra px-3 py-2 text-right ${n(l.UnitPrice) === 0 ? 'font-bold text-rojo' : ''}`}
+                  >
+                    {pesos.format(n(l.UnitPrice))}
+                  </td>
                   <td className="cifra px-3 py-2 text-right text-humo">
                     {pesos.format(n(l.AmountIncludingVAT) - n(l.Amount))}
                   </td>
@@ -233,6 +247,29 @@ function Resultado({
           </Total>
         </dl>
       </div>
+
+      {sinPrecio.length > 0 && (
+        <div className="mt-4 rounded-caja border-l-4 border-rojo bg-bruma px-4 py-3">
+          <p className="text-sm font-bold">
+            {sinPrecio.length === 1
+              ? 'Una línea salió con precio cero.'
+              : `${sinPrecio.length} líneas salieron con precio cero.`}{' '}
+            No mandes esta cotización así.
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-humo">
+            El producto puede tener precio en el catálogo y no tenerlo en la lista del grupo de
+            precio de este cliente. Hay que cargarlo en el ERP y volver a emitir.
+          </p>
+          <ul className="mt-2 space-y-0.5">
+            {sinPrecio.map((l) => (
+              <li key={l.LineNo} className="text-xs">
+                <span className="cifra text-humo">{l.No}</span>{' '}
+                <span className="font-semibold">{l.Description}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {error && (
         <p className="mt-4 rounded-caja border-l-4 border-rojo bg-bruma px-4 py-3 text-sm">{error}</p>

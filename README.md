@@ -155,6 +155,16 @@ Hasta 31% de diferencia. Por eso el paso 3 rotula los precios como **de lista** 
 porque el vendedor se lo canta al cliente por teléfono. El monto real aparece solo
 al emitir, calculado por NAV.
 
+## Precio cero: el ERP no avisa
+
+Un producto puede tener precio en el catálogo y **no tenerlo en la lista del grupo
+de precio del cliente**. NAV no da error: devuelve `UnitPrice 0.00` y sigue. Una
+LAVADORA FRIGIDAIRE de RD$53.990 salió en 0.00 para el grupo PCOMERCIAL.
+
+No se puede atajar antes de emitir, porque el precio del cliente solo se conoce
+cuando NAV responde. Así que el paso 4 revisa el documento ya emitido y avisa
+fuerte antes de que el vendedor mande el PDF.
+
 ## Un producto bloqueado tumba la cotización completa
 
 Verificado estado por estado contra el ERP: `Activo`, `Descatalogado` y
