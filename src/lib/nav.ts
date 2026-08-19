@@ -163,6 +163,19 @@ function traducirNav(texto: string): string {
     return `El producto ${itemBloqueado[1]} está bloqueado en el ERP y no se puede cotizar. Hay que quitarlo o reemplazarlo.`
   }
 
+  // Producto que existe en el espejo pero no en la base de NAV a la que apunta
+  // la pasarela. Pasa cuando el catálogo y el ERP no son el mismo entorno.
+  const itemInexistente = texto.match(
+    /field No\. of table Sales Line contains a value \(([A-Za-z0-9\-]+)\) that cannot be found/i,
+  )
+  if (itemInexistente) {
+    return (
+      `El producto ${itemInexistente[1]} no existe en la base del ERP a la que apunta la pasarela, ` +
+      'aunque sí esté en el catálogo. Quita esa línea o elige otro producto. ' +
+      'Si se repite con productos nuevos, el catálogo y el ERP no están sincronizados.'
+    )
+  }
+
   const clienteBloqueado = texto.match(/Customer (\S+) is blocked with type (\w+)/i)
   if (clienteBloqueado) {
     return `El cliente ${clienteBloqueado[1]} está bloqueado para ${clienteBloqueado[2] === 'Invoice' ? 'facturación' : clienteBloqueado[2]}. Hay que liberarlo en el ERP antes de cotizarle.`
