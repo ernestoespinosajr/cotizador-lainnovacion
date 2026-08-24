@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import type { ClienteFicha } from '@/app/api/clientes/route'
 import type { SituacionCliente } from '@/app/api/clientes/[no]/route'
+import type { ResumenHistorial } from '@/app/api/clientes/[no]/historial/route'
 import { Etiqueta, pesos } from './ui'
 
 export default function PasoCliente({
@@ -87,6 +88,23 @@ export default function PasoCliente({
 function Ficha({ cliente, onCambiar }: { cliente: ClienteFicha; onCambiar: () => void }) {
   const [nav, setNav] = useState<SituacionCliente | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [hist, setHist] = useState<ResumenHistorial | null>(null)
+
+  // En paralelo con la consulta a NAV y no después: son servicios distintos, y
+  // encadenarlas sumaría las dos esperas sin ninguna razón.
+  useEffect(() => {
+    let vivo = true
+    setHist(null)
+    fetch(`/api/clientes/${encodeURIComponent(cliente.no)}/historial`)
+      .then((r) => r.json())
+      .then((d: ResumenHistorial) => vivo && setHist(d))
+      // La ruta ya devuelve vacío ante cualquier fallo del ERP; esto solo cubre
+      // que se caiga la red del navegador.
+      .catch(() => vivo && setHist(null))
+    return () => {
+      vivo = false
+    }
+  }, [cliente.no])
 
   // La situación financiera se consulta al elegir el cliente, no al buscar: esta
   // llamada llega hasta NAV y tarda ~1,5 s, mientras la búsqueda es local.
@@ -182,8 +200,84 @@ function Ficha({ cliente, onCambiar }: { cliente: ClienteFicha; onCambiar: () =>
           </>
         )}
       </div>
+
+      <Historial resumen={hist} />
     </div>
   )
+}
+
+/**
+ * Documentos anteriores del cliente.
+ *
+ * Dice «cotizado» y no «comprado» a propósito: lo que devuelve el ERP es casi
+ * todo cotizaciones y no consta si se cerraron. Prometer una compra que quizá
+ * no ocurrió le haría creer al vendedor que conoce al cliente mejor de lo que
+ * lo conoce.
+ */
+function Historial({ resumen }: { resumen: ResumenHistorial | null }) {
+  const [todo, setTodo] = useState(false)
+  if (!resumen || resumen.documentos.length === 0) return null
+
+  const visibles = todo ? resumen.documentos : resumen.documentos.slice(0, 4)
+
+  return (
+    <div className="mt-5 rounded-caja border border-linea p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <Etiqueta>Ya se le ha cotizado</Etiqueta>
+        <span className="text-xs text-humo">
+          <span className="cifra">{resumen.totalDocumentos}</span> documentos ·{' '}
+          <span className="cifra">{resumen.productosDistintos}</span> productos distintos
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {visibles.map((d) => (
+          <div key={d.no} className="rounded-control border border-linea bg-bruma p-3.5">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="cifra text-xs text-humo">{d.no}</span>
+              <span className="cifra text-xs text-humo">{fecha(d.fecha)}</span>
+            </div>
+            <ul className="mt-2 space-y-1">
+              {d.lineas.map((l) => (
+                <li key={l.code} className="flex gap-2 text-xs leading-snug">
+                  <span className="cifra shrink-0 text-humo">{l.cantidad}×</span>
+                  <span className="min-w-0 flex-1 truncate" title={l.descripcion}>
+                    {l.descripcion}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-linea pt-2">
+              {d.restantes > 0 ? (
+                <span className="text-xs text-humo">y {d.restantes} más</span>
+              ) : (
+                <span />
+              )}
+              <span className="cifra text-xs font-semibold">{pesos.format(d.monto)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {resumen.documentos.length > 4 && (
+        <button
+          type="button"
+          onClick={() => setTodo((v) => !v)}
+          className="mt-3 rounded-control border border-linea px-3 py-1.5 text-xs font-bold uppercase tracking-wide hover:bg-bruma"
+        >
+          {todo ? 'Ver menos' : `Ver los ${resumen.documentos.length}`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Sin hora: la hora del ERP viene en UTC y aquí solo importa el día. */
+function fecha(iso: string) {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime())
+    ? '—'
+    : d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 }
 
 function Cargando() {

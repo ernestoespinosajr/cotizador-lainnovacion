@@ -22,6 +22,7 @@ export default function PanelVariantes({
   variantes,
   onElegir,
   onCerrar,
+  clienteNo,
   // 'agregar' abre el mismo panel sin línea de origen, para sumar un producto
   // que el cliente pidió durante la llamada. Es la misma búsqueda y la misma
   // lista: no hay razón para que el cotizador aprenda dos pantallas distintas.
@@ -32,6 +33,7 @@ export default function PanelVariantes({
   variantes: Candidato[]
   onElegir: (c: Candidato) => void
   onCerrar: () => void
+  clienteNo: string
   modo?: 'variantes' | 'agregar'
 }) {
   const agregando = modo === 'agregar'
@@ -62,7 +64,9 @@ export default function PanelVariantes({
     setBuscando(true)
     const t = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/productos?q=${encodeURIComponent(q)}`)
+        const r = await fetch(
+          `/api/productos?q=${encodeURIComponent(q)}&cliente=${encodeURIComponent(clienteNo)}`,
+        )
         const d = await r.json()
         setManual(d.productos ?? [])
       } finally {
@@ -70,7 +74,7 @@ export default function PanelVariantes({
       }
     }, 180)
     return () => clearTimeout(t)
-  }, [q])
+  }, [q, clienteNo])
 
   const lista = manual ?? variantes
 
@@ -167,6 +171,7 @@ export default function PanelVariantes({
                   <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                     <Existencia inventario={c.inventory} ubicaciones={c.locationCount} />
                     <Estado estado={c.itemStatus} />
+                    <Cotizado uso={c.uso} />
                     {actual && <span className="font-bold uppercase tracking-wide">Seleccionado</span>}
                   </span>
                 </span>
@@ -198,6 +203,27 @@ export function Existencia({ inventario, ubicaciones }: { inventario: number; ub
     )
   }
   return <span className="font-semibold text-rojo">Sin existencia</span>
+}
+
+/**
+ * Marca de que a este cliente ya se le cotizó este producto exacto.
+ *
+ * Es el dato, no la conclusión: el vendedor decide. Por eso lleva las veces y la
+ * fecha en vez de un «recomendado» que esconda de dónde sale.
+ */
+export function Cotizado({ uso }: { uso?: { veces: number; ultima: string } }) {
+  if (!uso) return null
+  const d = new Date(uso.ultima)
+  const cuando = Number.isNaN(d.getTime())
+    ? ''
+    : ` · ${d.toLocaleDateString('es-DO', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`
+  return (
+    <span className="font-semibold text-tinta">
+      Ya cotizado <span className="cifra">{uso.veces}</span>
+      {uso.veces === 1 ? ' vez' : ' veces'}
+      {cuando}
+    </span>
+  )
 }
 
 export function Estado({ estado }: { estado: string }) {

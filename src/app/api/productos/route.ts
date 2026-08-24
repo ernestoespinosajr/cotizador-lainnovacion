@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { buscarLibre } from '@/lib/buscar'
+import { bonoDe, usoDe } from '@/lib/historial'
+import { perfilDe } from '@/lib/perfilCache'
 import { cuantizar, normalizarVector, vecinos, vectorizar, vectoresDisponibles } from '@/lib/embeddings'
 
 export const runtime = 'nodejs'
@@ -12,8 +14,10 @@ export const runtime = 'nodejs'
  * mano justamente cuando lo automático no encontró.
  */
 export async function GET(req: Request) {
-  const q = new URL(req.url).searchParams.get('q')?.trim() ?? ''
+  const params = new URL(req.url).searchParams
+  const q = params.get('q')?.trim() ?? ''
   if (q.length < 2) return NextResponse.json({ productos: [] })
+  const clienteNo = params.get('cliente')?.trim() ?? ''
 
   let cercanos: { code: string; similitud: number }[] = []
   if (vectoresDisponibles()) {
@@ -25,5 +29,14 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ productos: buscarLibre(q, 24, cercanos) })
+  // Mismo empujón por historial que en la resolución automática: si el panel
+  // ordenara distinto que la lista de la que se abrió, el vendedor vería dos
+  // criterios contradictorios en la misma pantalla.
+  const perfil = await perfilDe(clienteNo)
+  const productos = buscarLibre(q, 24, cercanos, bonoDe(perfil)).map((c) => ({
+    ...c,
+    uso: usoDe(perfil, c.code) ?? undefined,
+  }))
+
+  return NextResponse.json({ productos })
 }

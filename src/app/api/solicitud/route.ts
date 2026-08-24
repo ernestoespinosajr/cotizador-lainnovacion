@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
-import { candidatos, resolver, type Resolucion } from '@/lib/buscar'
+import { candidatos, resolver, type Candidato, type Resolucion } from '@/lib/buscar'
 import { parsearExcel, parsearTexto, type LineaSolicitud } from '@/lib/parseo'
 import { extraerLineas, iaDisponible, reordenar } from '@/lib/ia'
 import { estadoEspejo } from '@/lib/db'
+import { bonoDe, usoDe } from '@/lib/historial'
+import { perfilDe } from '@/lib/perfilCache'
 import { cuantizar, normalizarVector, vecinos, vectorizar, vectoresDisponibles } from '@/lib/embeddings'
 
 export const runtime = 'nodejs'
@@ -75,11 +77,22 @@ export async function POST(req: Request) {
     }
   }
 
+  // Historial del cliente: empuja hacia lo que ya cotiza. Sale de caché salvo
+  // la primera vez, y si el ERP no responde se devuelve un perfil vacío y la
+  // búsqueda queda igual que antes de existir esto.
+  const perfil = await perfilDe(clienteNo)
+  const bono = bonoDe(perfil)
+  const marcar = (c: Candidato | null) =>
+    c ? { ...c, uso: usoDe(perfil, c.code) ?? undefined } : c
+
   // Recuperación local: milisegundos por línea, incluso con 100 líneas.
-  const resueltas: LineaResuelta[] = lineas.map((l) => ({
-    ...l,
-    resolucion: resolver(consultaDe(l), clienteNo, porLinea.get(l.id) ?? []),
-  }))
+  const resueltas: LineaResuelta[] = lineas.map((l) => {
+    const r = resolver(consultaDe(l), clienteNo, porLinea.get(l.id) ?? [], bono)
+    return {
+      ...l,
+      resolucion: { ...r, elegido: marcar(r.elegido), variantes: r.variantes.map((v) => marcar(v)!) },
+    }
+  })
 
   // El modelo solo reordena lo que la búsqueda dejó dudoso. Lo que ya entró por
   // código o código de barras no se toca: gastar tokens ahí no mejora nada.
@@ -90,7 +103,7 @@ export async function POST(req: Request) {
         dudosas.map((l) => ({
           id: l.id,
           texto: l.texto,
-          candidatos: candidatos(consultaDe(l), 12, porLinea.get(l.id) ?? []),
+          candidatos: candidatos(consultaDe(l), 12, porLinea.get(l.id) ?? [], bono),
         })),
       )
 

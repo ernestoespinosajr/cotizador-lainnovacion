@@ -200,7 +200,7 @@ export default function Page() {
             titulo="Revisa lo que encontró"
             bajada={cliente ? `Cotización para ${cliente.name}.` : 'Falta elegir el cliente.'}
           >
-            <PasoProductos lineas={lineas} setLineas={setLineas} ia={ia} />
+            <PasoProductos lineas={lineas} setLineas={setLineas} ia={ia} clienteNo={cliente?.no ?? ''} />
             <button type="button" className="boton mt-6" onClick={() => setPaso(3)}>
               Continuar
             </button>

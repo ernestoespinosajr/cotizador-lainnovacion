@@ -5,7 +5,7 @@ import type { Candidato, Confianza } from '@/lib/buscar'
 import { cotizable } from '@/lib/producto'
 import type { LineaResuelta } from '@/app/api/solicitud/route'
 import EspinaConfianza from './EspinaConfianza'
-import PanelVariantes, { Estado, Existencia } from './PanelVariantes'
+import PanelVariantes, { Cotizado, Estado, Existencia } from './PanelVariantes'
 import { ESTADOS, pesos } from './ui'
 
 export type LineaEstado = LineaResuelta & { elegido: Candidato | null; incluida: boolean }
@@ -14,10 +14,15 @@ export default function PasoProductos({
   lineas,
   setLineas,
   ia,
+  clienteNo,
 }: {
   lineas: LineaEstado[]
   setLineas: (f: (prev: LineaEstado[]) => LineaEstado[]) => void
   ia: boolean
+  // La búsqueda manual del panel ordena con el historial del cliente, igual que
+  // la automática. Sin esto, abrir el panel reordenaría la lista sin motivo
+  // visible.
+  clienteNo: string
 }) {
   const [filtro, setFiltro] = useState<Confianza | null>(null)
   const [abierta, setAbierta] = useState<string | null>(null)
@@ -161,6 +166,7 @@ export default function PasoProductos({
             setAbierta(null)
           }}
           onCerrar={() => setAbierta(null)}
+          clienteNo={clienteNo}
           modo="variantes"
         />
       )}
@@ -172,6 +178,7 @@ export default function PasoProductos({
           variantes={[]}
           onElegir={agregar}
           onCerrar={() => setAgregando(false)}
+          clienteNo={clienteNo}
           modo="agregar"
         />
       )}
@@ -261,6 +268,11 @@ function Fila({
         {p && (
           <span className="mt-0.5 block">
             <Estado estado={p.itemStatus} />
+          </span>
+        )}
+        {p?.uso && (
+          <span className="mt-0.5 block">
+            <Cotizado uso={p.uso} />
           </span>
         )}
       </span>

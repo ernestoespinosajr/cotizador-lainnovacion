@@ -37,6 +37,10 @@ export type Confianza = 'exacto' | 'probable' | 'ambiguo' | 'sin_match'
 
 export { cotizable }
 
+// Solo el tipo: no crea dependencia en tiempo de ejecución con `historial.ts`,
+// que sí importa funciones de este módulo.
+import type { UsoProducto } from './historial'
+
 export type Candidato = Producto & {
   /** 0..1 — porción del pedido, pesada por rareza, que aparece en el producto. */
   cobertura: number
@@ -46,6 +50,12 @@ export type Candidato = Producto & {
   similitud: number
   puntaje: number
   motivo: string
+  /**
+   * Cuántas veces se le cotizó este producto exacto a este cliente y cuándo fue
+   * la última. Lo rellena la ruta, no la búsqueda: el historial vive fuera del
+   * espejo local. Ausente cuando el cliente no tiene historial.
+   */
+  uso?: UsoProducto
 }
 
 export type Resolucion = {
@@ -159,7 +169,7 @@ function bonoDisponibilidad(p: Producto) {
  */
 const idfCache = new Map<string, number>()
 
-function idf(termino: string) {
+export function idf(termino: string) {
   const cacheado = idfCache.get(termino)
   if (cacheado !== undefined) return cacheado
 
@@ -322,6 +332,7 @@ export function candidatos(
   texto: string,
   limite = 40,
   vecinos: { code: string; similitud: number }[] = [],
+  bono?: (p: Producto) => number,
 ): Candidato[] {
   const ts = terminos(texto)
   if (ts.length === 0 && vecinos.length === 0) return []
@@ -365,9 +376,15 @@ export function candidatos(
     const sm = sim.get(p.code) ?? 0
     // Con índice semántico los pesos de texto se ceden en parte a la similitud.
     // Sin él, el reparto queda como estaba y nada cambia.
-    const puntaje = hayVectores
+    const base = hayVectores
       ? 0.22 * bm25 + 0.20 * cob + 0.24 * posicionNucleo(ts, p) + 0.34 * sm + bonoDisponibilidad(p)
       : 0.34 * bm25 + 0.28 * cob + 0.30 * posicionNucleo(ts, p) + bonoDisponibilidad(p)
+
+    // El historial del cliente entra como los demás desempates: sumado al final
+    // y acotado. No participa en la recuperación ni puede rescatar un producto
+    // que el texto no trajo, así que nunca cambia QUÉ se ofrece, solo el orden.
+    const hist = bono ? bono(p) : 0
+    const puntaje = base + hist
 
     return {
       ...p,
@@ -393,11 +410,12 @@ export function buscarLibre(
   texto: string,
   limite = 30,
   vecinos: { code: string; similitud: number }[] = [],
+  bono?: (p: Producto) => number,
 ) {
   const t = texto.trim()
   if (!t) return []
   const exacto = porCodigoOBarras(t)
-  const lista = candidatos(t, limite, vecinos)
+  const lista = candidatos(t, limite, vecinos, bono)
   if (exacto && !lista.some((c) => c.code === exacto.code)) {
     return [{ ...exacto, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código exacto' }, ...lista].slice(0, limite)
   }
@@ -436,6 +454,7 @@ export function resolver(
   texto: string,
   clienteNo = '',
   vecinos: { code: string; similitud: number }[] = [],
+  bono?: (p: Producto) => number,
 ): Resolucion {
   const vacio: Resolucion = { confianza: 'sin_match', elegido: null, variantes: [], nota: null }
   if (!texto.trim()) return vacio
@@ -446,7 +465,7 @@ export function resolver(
     return {
       confianza: 'exacto',
       elegido: { ...previo, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Resuelto así en una cotización anterior' },
-      variantes: candidatos(texto).filter((c) => c.code !== previo.code).slice(0, 8),
+      variantes: candidatos(texto, 40, vecinos, bono).filter((c) => c.code !== previo.code).slice(0, 8),
       nota: null,
     }
   }
@@ -457,12 +476,12 @@ export function resolver(
     return {
       confianza: 'exacto',
       elegido: { ...literal, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código exacto' },
-      variantes: candidatos(literal.description).filter((c) => c.code !== literal.code).slice(0, 8),
+      variantes: candidatos(literal.description, 40, vecinos, bono).filter((c) => c.code !== literal.code).slice(0, 8),
       nota: null,
     }
   }
 
-  const lista = candidatos(texto, 40, vecinos)
+  const lista = candidatos(texto, 40, vecinos, bono)
   if (lista.length === 0) {
     return { ...vacio, nota: 'No hay ningún producto que se parezca en el catálogo.' }
   }

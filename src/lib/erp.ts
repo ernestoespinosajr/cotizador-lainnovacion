@@ -171,3 +171,50 @@ export async function usuarioActual(): Promise<UsuarioErp | null> {
     return null
   }
 }
+
+/** Una línea de un documento del historial. `type` 2 es artículo; el resto son cargos, textos o cuentas. */
+export type LineaHistorial = {
+  documentNo: string
+  lineNo: number
+  type: number
+  no: string
+  description: string
+  description2: string
+  quantity: number
+  unitPrice: number
+  lineAmount: number
+}
+
+export type DocumentoHistorial = {
+  no: string
+  source: string
+  documentType: number
+  documentTypeName: string
+  orderDate: string
+  amount: number
+  amountIncludingVat: number
+  lineCount: number
+  totalQuantity: number
+  salespersonCode: string
+  lines?: LineaHistorial[]
+}
+
+/**
+ * Documentos anteriores del cliente, del más reciente al más antiguo.
+ *
+ * Es casi todo cotizaciones: de 5.204 documentos muestreados en 120 clientes,
+ * 5.128 eran `Quote`. El histórico facturado (`source=posted`) devuelve cero en
+ * esta instancia, así que la interfaz habla de «cotizado antes» y no de
+ * «comprado»: no sabemos si el documento se cerró.
+ *
+ * Cuesta unos 2,3 s por cada 100 documentos con líneas, y crece lineal. Con 50
+ * baja a 0,6 s. Como viene ordenado por fecha descendente, una sola página
+ * alcanza y no hay que paginar.
+ */
+export async function historialCliente(no: string, pageSize = 100) {
+  const r = await get<DocumentoHistorial>(`/api/catalogos/clientes/${encodeURIComponent(no)}/historial`, {
+    includeLines: true,
+    pageSize,
+  })
+  return r.data
+}
