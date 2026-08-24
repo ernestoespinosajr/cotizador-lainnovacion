@@ -86,7 +86,7 @@ export default function PasoProductos({
       </div>
 
       <div className="mt-5 overflow-hidden rounded-caja border border-linea">
-        <div className="hidden grid-cols-[3px_auto_4rem_1fr_8rem_7rem_6rem] items-center gap-3 border-b-2 border-tinta bg-bruma py-2 pr-4 md:grid">
+        <div className="hidden grid-cols-[3px_auto_4rem_1fr_8rem_7rem_9.5rem] items-center gap-3 border-b-2 border-tinta bg-bruma py-2 pr-4 md:grid">
           <span />
           <span />
           <span className="etiqueta">Cant.</span>
@@ -222,7 +222,7 @@ function Fila({
 
   return (
     <div
-      className={`grid grid-cols-[3px_auto_1fr] items-start gap-3 border-b border-linea py-3 pr-4 last:border-b-0 md:grid-cols-[3px_auto_4rem_1fr_8rem_7rem_7.5rem] md:items-center ${estado.fondo}`}
+      className={`grid grid-cols-[3px_auto_1fr] items-start gap-3 border-b border-linea py-3 pr-4 last:border-b-0 md:grid-cols-[3px_auto_4rem_1fr_8rem_7rem_9.5rem] md:items-center ${estado.fondo}`}
     >
       {/* Marca de margen: la señal de confianza que se ve sin abrir nada. Si una
           fila dudosa se viera igual que una resuelta, nadie la abriría. */}
@@ -294,10 +294,10 @@ function Fila({
       </span>
 
       <span className="hidden items-center justify-end gap-1.5 md:flex">
-        {p && <Info onAbrir={onDetalle} descripcion={p.description} />}
         <button type="button" onClick={onAbrir} className="boton-borde !px-2.5 !py-1 !text-[0.65rem]">
           {p ? 'Variantes' : 'Buscar'}
         </button>
+        {p && <Info onAbrir={onDetalle} descripcion={p.description} />}
         {/* El hueco se reserva siempre, tenga o no botón de quitar: si solo se
             ocupara en las líneas manuales, el botón Variantes de esas filas
             quedaría corrido y la columna se vería rota. */}
@@ -310,10 +310,10 @@ function Fila({
         <span className="cifra text-sm font-bold">
           {p?.unitPrice ? pesos.format(p.unitPrice) : '—'}
         </span>
-        {p && <Info onAbrir={onDetalle} descripcion={p.description} />}
         <button type="button" onClick={onAbrir} className="boton-borde !px-2 !py-0.5 !text-[0.65rem]">
           {p ? 'Variantes' : 'Buscar'}
         </button>
+        {p && <Info onAbrir={onDetalle} descripcion={p.description} />}
         {onQuitar && <Quitar onQuitar={onQuitar} descripcion={p?.description ?? linea.texto} />}
       </span>
     </div>
