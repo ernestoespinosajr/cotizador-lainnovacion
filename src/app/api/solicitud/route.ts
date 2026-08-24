@@ -3,7 +3,7 @@ import { candidatos, resolver, type Candidato, type Resolucion } from '@/lib/bus
 import { parsearExcel, parsearTexto, type LineaSolicitud } from '@/lib/parseo'
 import { extraerLineas, iaDisponible, reordenar } from '@/lib/ia'
 import { estadoEspejo } from '@/lib/db'
-import { bonoDe, usoDe } from '@/lib/historial'
+import { bonoDe, patronDe, usoDe } from '@/lib/historial'
 import { perfilDe } from '@/lib/perfilCache'
 import { cuantizar, normalizarVector, vecinos, vectorizar, vectoresDisponibles } from '@/lib/embeddings'
 
@@ -82,8 +82,18 @@ export async function POST(req: Request) {
   // búsqueda queda igual que antes de existir esto.
   const perfil = await perfilDe(clienteNo)
   const bono = bonoDe(perfil)
+  // Va también en las variantes, no solo en el elegido: al elegir una desde el
+  // panel esa pasa a ser la elegida, y la ficha se quedaría sin explicar nada.
+  // No cuesta: las variantes son del mismo tipo que el elegido, así que sus
+  // consultas de presencia caen en las mismas entradas de caché.
   const marcar = (c: Candidato | null) =>
-    c ? { ...c, uso: usoDe(perfil, c.code) ?? undefined } : c
+    c
+      ? {
+          ...c,
+          uso: usoDe(perfil, c.code) ?? undefined,
+          patron: patronDe(perfil, c.description) ?? undefined,
+        }
+      : c
 
   // Recuperación local: milisegundos por línea, incluso con 100 líneas.
   const resueltas: LineaResuelta[] = lineas.map((l) => {

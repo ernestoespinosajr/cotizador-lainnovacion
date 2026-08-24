@@ -194,13 +194,16 @@ export default function PanelVariantes({
 }
 
 /**
- * El conteo de ubicaciones ya no se muestra aquí.
+ * El conteo de ubicaciones no se muestra en ningún lado.
  *
  * Decía "en 25 ubicaciones" junto a la cantidad, y se leía como que la
  * existencia estaba repartida en 25 sitios. No es eso: son las ubicaciones
  * donde el artículo está dado de alta, tenga o no unidades. 30.455 productos
- * del catálogo —el 48%— aparecen con ubicaciones y cero disponible. El dato
- * queda en la ficha, donde cabe explicarlo.
+ * del catálogo —el 48%— aparecen con ubicaciones y cero disponible.
+ *
+ * Sin el reparto por sucursal el número no le resuelve nada al vendedor, así
+ * que se retiró también de la ficha. Vuelve cuando el ERP exponga el detalle;
+ * el sitio y el porqué están anotados en `DetalleProducto`.
  */
 export function Existencia({ inventario }: { inventario: number }) {
   if (inventario > 0) {

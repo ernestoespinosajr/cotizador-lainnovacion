@@ -78,14 +78,28 @@ export default function DetalleProducto({
                 <span className="font-bold text-rojo">Sin existencia</span>
               )}
             </p>
-            {p.locationCount > 0 && (
-              <p className="mt-1.5 text-xs text-humo">
-                Dado de alta en <span className="cifra">{p.locationCount}</span>{' '}
-                {p.locationCount === 1 ? 'ubicación' : 'ubicaciones'} —sucursales y almacenes—, que
-                no es lo mismo que tener existencia en todas. El ERP no devuelve el reparto por
-                ubicación, solo el total y el conteo.
-              </p>
-            )}
+            {/*
+              Ubicaciones, oculto a la espera del reparto por sucursal.
+
+              `p.locationCount` sigue llegando y dice en cuántas ubicaciones está
+              dado de alta el artículo, que no es lo mismo que dónde están las
+              unidades: 30.455 productos del catálogo —el 48%— aparecen con
+              ubicaciones y cero existencia. Un número sin el reparto no le
+              resuelve nada al vendedor, que lo que necesita saber es en qué
+              sucursal está la mercancía.
+
+              Cuando el ERP exponga el detalle por ubicación, esto vuelve acá
+              como una lista de sucursal y cantidad. Hoy no existe: se probaron
+              los parámetros includeLocations, includeStock y detail en
+              /api/catalogos/productos y las rutas /catalogos/ubicaciones y
+              /productos/{code}/ubicaciones, y todas devuelven el HTML del SPA.
+
+              {p.locationCount > 0 && (
+                <p className="mt-1.5 text-xs text-humo">
+                  Dado de alta en {p.locationCount} ubicaciones.
+                </p>
+              )}
+            */}
           </section>
 
           <Separador />
@@ -105,20 +119,28 @@ export default function DetalleProducto({
             <Dato rotulo="Clasificación">{p.clasificacion || '—'}</Dato>
           </div>
 
-          {p.uso && (
+          {(p.uso || p.patron) && (
             <>
               <Separador />
               <section>
                 <div className="etiqueta">Historial de este cliente</div>
-                <p className="mt-1.5 text-sm">
-                  Ya se le cotizó <span className="cifra font-bold">{p.uso.veces}</span>{' '}
-                  {p.uso.veces === 1 ? 'vez' : 'veces'}
-                  {fechaLarga(p.uso.ultima) && <>, la última el {fechaLarga(p.uso.ultima)}</>}.
-                </p>
-                <p className="mt-1.5 text-xs text-humo">
-                  Sale de sus documentos anteriores en el ERP, que son cotizaciones: no consta que
-                  se hayan cerrado en venta.
-                </p>
+                {p.uso && (
+                  <p className="mt-1.5 text-sm">
+                    Ya se le cotizó <span className="cifra font-bold">{p.uso.veces}</span>{' '}
+                    {p.uso.veces === 1 ? 'vez' : 'veces'}
+                    {fechaLarga(p.uso.ultima) && <>, la última el {fechaLarga(p.uso.ultima)}</>}.
+                  </p>
+                )}
+                {p.patron && (
+                  <p className="mt-1.5 text-sm">
+                    De sus <span className="cifra font-bold">{p.patron.total}</span>{' '}
+                    {plural(p.patron.tipo)} anteriores,{' '}
+                    {enumerar(
+                      p.patron.rasgos.map((r) => `${r.veces} ${r.termino.toUpperCase()}`),
+                    )}
+                    . Por eso este quedó delante de los demás de su tipo.
+                  </p>
+                )}
               </section>
             </>
           )}
@@ -154,6 +176,22 @@ export default function DetalleProducto({
       </div>
     </div>
   )
+}
+
+/**
+ * Plural del tipo de producto. Los tipos del catálogo son sustantivos comunes
+ * —abanico, extractor, escalera, nevera—, así que la regla de vocal/consonante
+ * los cubre; el caso de la z va aparte porque «lapiz» rompería.
+ */
+function plural(t: string) {
+  if (/z$/.test(t)) return `${t.slice(0, -1)}ces`
+  return /[aeiou]$/.test(t) ? `${t}s` : `${t}es`
+}
+
+/** «a, b y c» — la coma sola en una lista de tres se lee como enumeración rota. */
+function enumerar(partes: string[]) {
+  if (partes.length <= 1) return partes[0] ?? ''
+  return `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
 }
 
 function Separador() {

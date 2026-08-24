@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { buscarLibre } from '@/lib/buscar'
-import { bonoDe, usoDe } from '@/lib/historial'
+import { bonoDe, patronDe, usoDe } from '@/lib/historial'
 import { perfilDe } from '@/lib/perfilCache'
 import { cuantizar, normalizarVector, vecinos, vectorizar, vectoresDisponibles } from '@/lib/embeddings'
 
@@ -36,6 +36,7 @@ export async function GET(req: Request) {
   const productos = buscarLibre(q, 24, cercanos, bonoDe(perfil)).map((c) => ({
     ...c,
     uso: usoDe(perfil, c.code) ?? undefined,
+    patron: patronDe(perfil, c.description) ?? undefined,
   }))
 
   return NextResponse.json({ productos })

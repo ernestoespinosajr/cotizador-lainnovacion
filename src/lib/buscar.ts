@@ -39,7 +39,7 @@ export { cotizable }
 
 // Solo el tipo: no crea dependencia en tiempo de ejecución con `historial.ts`,
 // que sí importa funciones de este módulo.
-import type { UsoProducto } from './historial'
+import type { PatronCliente, UsoProducto } from './historial'
 
 export type Candidato = Producto & {
   /** 0..1 — porción del pedido, pesada por rareza, que aparece en el producto. */
@@ -56,6 +56,8 @@ export type Candidato = Producto & {
    * espejo local. Ausente cuando el cliente no tiene historial.
    */
   uso?: UsoProducto
+  /** Lo que el cliente repite dentro de este tipo de producto. */
+  patron?: PatronCliente
 }
 
 export type Resolucion = {
