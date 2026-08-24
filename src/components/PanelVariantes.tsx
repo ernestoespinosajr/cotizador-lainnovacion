@@ -169,7 +169,7 @@ export default function PanelVariantes({
                     <span className="block text-xs text-humo">{c.description2}</span>
                   )}
                   <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                    <Existencia inventario={c.inventory} ubicaciones={c.locationCount} />
+                    <Existencia inventario={c.inventory} />
                     <Estado estado={c.itemStatus} />
                     <Cotizado uso={c.uso} />
                     {actual && <span className="font-bold uppercase tracking-wide">Seleccionado</span>}
@@ -193,12 +193,21 @@ export default function PanelVariantes({
   )
 }
 
-export function Existencia({ inventario, ubicaciones }: { inventario: number; ubicaciones: number }) {
+/**
+ * El conteo de ubicaciones ya no se muestra aquí.
+ *
+ * Decía "en 25 ubicaciones" junto a la cantidad, y se leía como que la
+ * existencia estaba repartida en 25 sitios. No es eso: son las ubicaciones
+ * donde el artículo está dado de alta, tenga o no unidades. 30.455 productos
+ * del catálogo —el 48%— aparecen con ubicaciones y cero disponible. El dato
+ * queda en la ficha, donde cabe explicarlo.
+ */
+export function Existencia({ inventario }: { inventario: number }) {
   if (inventario > 0) {
     return (
       <span className="text-humo">
-        <span className="cifra font-semibold text-tinta">{inventario.toLocaleString('es-DO')}</span> u.
-        {ubicaciones > 0 && ` en ${ubicaciones} ${ubicaciones === 1 ? 'ubicación' : 'ubicaciones'}`}
+        <span className="cifra font-semibold text-tinta">{inventario.toLocaleString('es-DO')}</span>{' '}
+        u.
       </span>
     )
   }

@@ -5,7 +5,8 @@ import type { Candidato, Confianza } from '@/lib/buscar'
 import { cotizable } from '@/lib/producto'
 import type { LineaResuelta } from '@/app/api/solicitud/route'
 import EspinaConfianza from './EspinaConfianza'
-import PanelVariantes, { Cotizado, Estado, Existencia } from './PanelVariantes'
+import PanelVariantes, { Estado, Existencia } from './PanelVariantes'
+import DetalleProducto from './DetalleProducto'
 import { ESTADOS, pesos } from './ui'
 
 export type LineaEstado = LineaResuelta & { elegido: Candidato | null; incluida: boolean }
@@ -26,6 +27,7 @@ export default function PasoProductos({
 }) {
   const [filtro, setFiltro] = useState<Confianza | null>(null)
   const [abierta, setAbierta] = useState<string | null>(null)
+  const [detalle, setDetalle] = useState<string | null>(null)
   const [agregando, setAgregando] = useState(false)
 
   const conteo = useMemo(() => {
@@ -36,6 +38,7 @@ export default function PasoProductos({
 
   const visibles = filtro ? lineas.filter((l) => l.resolucion.confianza === filtro) : lineas
   const activa = lineas.find((l) => l.id === abierta) ?? null
+  const conFicha = lineas.find((l) => l.id === detalle) ?? null
 
   const incluidas = lineas.filter((l) => l.incluida && l.elegido)
 
@@ -98,6 +101,7 @@ export default function PasoProductos({
             key={l.id}
             linea={l}
             onAbrir={() => setAbierta(l.id)}
+            onDetalle={() => setDetalle(l.id)}
             onCambiar={(c) => actualizar(l.id, c)}
             onQuitar={l.origen.tipo === 'manual' ? () => quitar(l.id) : undefined}
           />
@@ -171,6 +175,14 @@ export default function PasoProductos({
         />
       )}
 
+      {conFicha?.elegido && (
+        <DetalleProducto
+          producto={conFicha.elegido}
+          pedido={conFicha.origen.tipo === 'manual' ? undefined : conFicha.texto}
+          onCerrar={() => setDetalle(null)}
+        />
+      )}
+
       {agregando && (
         <PanelVariantes
           pedido=""
@@ -189,11 +201,13 @@ export default function PasoProductos({
 function Fila({
   linea,
   onAbrir,
+  onDetalle,
   onCambiar,
   onQuitar,
 }: {
   linea: LineaEstado
   onAbrir: () => void
+  onDetalle: () => void
   onCambiar: (c: Partial<LineaEstado>) => void
   /** Solo llega en las líneas agregadas a mano. */
   onQuitar?: () => void
@@ -263,16 +277,14 @@ function Fila({
         )}
       </span>
 
+      {/* Solo lo que se compara de un vistazo entre filas. El estado se queda
+          porque no es información adicional sino un impedimento: con un producto
+          bloqueado el ERP rechaza el documento entero. El resto vive en la ficha. */}
       <span className="hidden text-xs md:block">
-        {p ? <Existencia inventario={p.inventory} ubicaciones={p.locationCount} /> : '—'}
-        {p && (
+        {p ? <Existencia inventario={p.inventory} /> : '—'}
+        {p && p.itemStatus !== 'Activo' && (
           <span className="mt-0.5 block">
             <Estado estado={p.itemStatus} />
-          </span>
-        )}
-        {p?.uso && (
-          <span className="mt-0.5 block">
-            <Cotizado uso={p.uso} />
           </span>
         )}
       </span>
@@ -282,6 +294,7 @@ function Fila({
       </span>
 
       <span className="hidden items-center justify-end gap-1.5 md:flex">
+        {p && <Info onAbrir={onDetalle} descripcion={p.description} />}
         <button type="button" onClick={onAbrir} className="boton-borde !px-2.5 !py-1 !text-[0.65rem]">
           {p ? 'Variantes' : 'Buscar'}
         </button>
@@ -297,12 +310,28 @@ function Fila({
         <span className="cifra text-sm font-bold">
           {p?.unitPrice ? pesos.format(p.unitPrice) : '—'}
         </span>
+        {p && <Info onAbrir={onDetalle} descripcion={p.description} />}
         <button type="button" onClick={onAbrir} className="boton-borde !px-2 !py-0.5 !text-[0.65rem]">
           {p ? 'Variantes' : 'Buscar'}
         </button>
         {onQuitar && <Quitar onQuitar={onQuitar} descripcion={p?.description ?? linea.texto} />}
       </span>
     </div>
+  )
+}
+
+/** Misma caja de 22 px que el botón de quitar, para que la fila no se descuadre. */
+function Info({ onAbrir, descripcion }: { onAbrir: () => void; descripcion: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onAbrir}
+      title="Ver detalle"
+      aria-label={`Ver detalle de ${descripcion}`}
+      className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border border-linea text-[0.7rem] font-bold text-humo hover:border-tinta hover:text-tinta"
+    >
+      i
+    </button>
   )
 }
 
