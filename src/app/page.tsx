@@ -3,6 +3,8 @@
 import Image from 'next/image'
 import { useState } from 'react'
 import type { ClienteFicha } from '@/app/api/clientes/route'
+import type { SituacionCliente } from '@/app/api/clientes/[no]/route'
+import { grupoDe } from '@/lib/precios'
 import type { LineaResuelta } from '@/app/api/solicitud/route'
 import { cotizable } from '@/lib/producto'
 import PasoCliente from '@/components/PasoCliente'
@@ -17,6 +19,9 @@ export default function Page() {
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cliente, setCliente] = useState<ClienteFicha | null>(null)
+  // La ficha de NAV la consulta el paso 1; se guarda acá porque el grupo de
+  // precio lo necesita el paso 3 para preseleccionar la lista.
+  const [situacion, setSituacion] = useState<SituacionCliente | null>(null)
   const [lineas, setLineas] = useState<LineaEstado[]>([])
   const [ia, setIa] = useState(false)
 
@@ -175,7 +180,14 @@ export default function Page() {
             titulo="¿A quién se cotiza?"
             bajada="Busca por nombre, RNC o código. De esto dependen los precios que va a aplicar el ERP."
           >
-            <PasoCliente elegido={cliente} onElegir={setCliente} />
+            <PasoCliente
+              elegido={cliente}
+              onElegir={(c) => {
+                setCliente(c)
+                setSituacion(null)
+              }}
+              onSituacion={setSituacion}
+            />
             {cliente && (
               // Con líneas ya cargadas el botón salta a Productos: volver a la
               // solicitud obligaría a pasar por una pantalla que ya se usó.
@@ -200,7 +212,13 @@ export default function Page() {
             titulo="Revisa lo que encontró"
             bajada={cliente ? `Cotización para ${cliente.name}.` : 'Falta elegir el cliente.'}
           >
-            <PasoProductos lineas={lineas} setLineas={setLineas} ia={ia} clienteNo={cliente?.no ?? ''} />
+            <PasoProductos
+              lineas={lineas}
+              setLineas={setLineas}
+              ia={ia}
+              clienteNo={cliente?.no ?? ''}
+              grupoCliente={grupoDe(situacion?.grupoPrecio)}
+            />
             <button type="button" className="boton mt-6" onClick={() => setPaso(3)}>
               Continuar
             </button>
@@ -212,7 +230,12 @@ export default function Page() {
             titulo="Emitir la cotización"
             bajada="El ERP calcula los precios del cliente y devuelve el documento con su número."
           >
-            <PasoCotizacion cliente={cliente} lineas={lineas} onVolver={() => setPaso(2)} />
+            <PasoCotizacion
+              cliente={cliente}
+              lineas={lineas}
+              grupoCliente={grupoDe(situacion?.grupoPrecio)}
+              onVolver={() => setPaso(2)}
+            />
           </Seccion>
         )}
 

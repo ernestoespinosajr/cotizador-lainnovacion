@@ -140,6 +140,84 @@ Cada corrección del cotizador se guarda como vocabulario de ese cliente (tabla 
 Los clientes repiten su forma de nombrar las cosas, así que esas correcciones hacen que la
 próxima solicitud entre resuelta. Ya funciona, aunque el paso de emisión todavía no exista.
 
+## Los tres precios y el descuento
+
+El catálogo trae tres precios por producto —`priceDetalle`, `pricePcomercial` y
+`priceMayor`— y cada cliente tiene uno de esos tres grupos en su ficha de NAV. El
+paso 3 muestra un selector con las tres listas, preseleccionado con el grupo del
+cliente, y un campo de descuento adicional al lado.
+
+**NAV no acepta que se le mande un precio.** Probado contra la pasarela, ignora
+las seis formas de decírselo:
+
+| Se envió | Resultado |
+|---|---|
+| `<Unit_Price>` · `<UnitPrice>` · `<Price>` por línea | ignorado |
+| `<Line_Discount_Amount>` por línea | ignorado |
+| `<Customer_Price_Group>` · `<Price_Group>` · `<CustomerPriceGroup>` en cabecera | ignorado |
+| **`<Line_Discount_Pct>`** por línea | **funciona** |
+
+`Line_Discount_Pct` admite decimales y llega hasta 100; un negativo lo rechaza con
+«Line_Discount_Pct (-5) debe estar entre 0 y 100».
+
+Por eso la lista elegida y el descuento se convierten a **un único porcentaje**
+sobre el precio que NAV va a aplicar de todos modos (ver [`src/lib/precios.ts`](src/lib/precios.ts)):
+
+```
+descuento_enviado = (1 − (precio_elegido × (1 − descuento_extra)) / precio_del_grupo_del_cliente) × 100
+```
+
+Subir de lista no es posible —NAV solo descuenta— así que si el grupo elegido es
+más caro que el del cliente se cobra el del cliente y la fila lo avisa con «no
+sube».
+
+### Al pasar a producción: verificar que los precios coincidan
+
+**Esto es lo único que hay que revisar de esta función antes de ponerla en la
+empresa.** La conversión a descuento se apoya en la proporción entre los precios
+del catálogo, y NAV la aplica sobre su propia base. Si el catálogo y el ERP no
+tienen los mismos precios, el precio final sale corrido.
+
+En el entorno de pruebas no coinciden. Para el ítem `001229`:
+
+| Grupo | Catálogo (GestionIncidencias) | ERP (SANA-TEST) |
+|---|---|---|
+| DETALLE | 5.250,00 | 5.650,00 |
+| PCOMERCIAL | 5.000,00 | 5.300,00 |
+| MAYOR | 4.300,00 | 4.600,00 |
+
+El mapeo grupo → precio es correcto y el orden se respeta; lo que no coincide son
+los importes. Es la **misma deriva de entornos** que hace que los productos con
+código sobre 070000 existan en el catálogo y no en el ERP de pruebas: son dos
+bases distintas, y SANA-TEST es una copia anterior.
+
+Cómo verificarlo en producción, antes de habilitar el selector:
+
+1. Tomar tres o cuatro productos con existencia y precio en las tres listas.
+2. Emitir una cotización de una línea, sin descuento, para un cliente de cada
+   grupo.
+3. Comparar el `UnitPrice` que devuelve NAV, multiplicado por 1,18, contra
+   `priceDetalle`, `pricePcomercial` y `priceMayor` del catálogo.
+
+Si coinciden, el selector es exacto y no hay nada que tocar. Si no, el catálogo y
+el ERP siguen apuntando a entornos distintos y hay que alinearlos antes: mientras
+no lo estén, el descuento calculado es aproximado.
+
+La salida de fondo es que el backend acepte el grupo de precio en
+`LI_CREATE_QUOTE`. Con eso desaparece la conversión y la dependencia de que las
+dos bases estén sincronizadas. Está anotado en la lista de pedidos.
+
+## Existencia por tienda
+
+El catálogo detalla la existencia de ocho sitios: tiendas `01` a `05` y almacenes
+`11`, `12` y `15`. La ficha del producto los muestra.
+
+**No son todas las ubicaciones.** Medido sobre 400 productos, en 58 —el 14,5%— el
+total del ERP es mayor que la suma de los ocho, y el `locationCount` llega a 28.
+Por eso el rótulo dice «en tiendas y almacenes principales» y, cuando la cuenta no
+cierra, la ficha dice cuántas unidades quedan fuera en vez de dejar que el vendedor
+sume y le falten.
+
 ## El precio de lista no es el precio del cliente
 
 Es la trampa más importante del sistema. Para el ítem `001010`:
@@ -201,6 +279,8 @@ Nada bloqueante. Cuatro mejoras, todas de un campo, documentadas en
 | `LocationName` | Igual con la tienda: imprime `03` y no «TIENDA CHARLES DE GAULLE» |
 | Consulta de precios por cliente | El paso 3 muestra precios de lista; con esto mostraría los reales |
 | Consulta de cotización por referencia | Si se corta la red, la cotización queda creada y su número es irrecuperable |
+| Grupo de precio en `LI_CREATE_QUOTE` | El cambio de lista se manda convertido a descuento, y eso exige que catálogo y ERP tengan los mismos precios |
+| Existencia por ubicación completa | Solo se detallan ocho sitios; en el 14,5% de los productos el total es mayor que su suma |
 
 ## Estructura
 

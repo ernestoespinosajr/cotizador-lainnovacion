@@ -9,9 +9,12 @@ import { Etiqueta, pesos } from './ui'
 export default function PasoCliente({
   elegido,
   onElegir,
+  onSituacion,
 }: {
   elegido: ClienteFicha | null
   onElegir: (c: ClienteFicha | null) => void
+  /** La ficha de NAV se consulta acá; el paso 3 la necesita para los precios. */
+  onSituacion: (s: SituacionCliente | null) => void
 }) {
   const [q, setQ] = useState('')
   const [lista, setLista] = useState<ClienteFicha[]>([])
@@ -35,7 +38,8 @@ export default function PasoCliente({
     return () => clearTimeout(t)
   }, [q])
 
-  if (elegido) return <Ficha cliente={elegido} onCambiar={() => onElegir(null)} />
+  if (elegido)
+    return <Ficha cliente={elegido} onCambiar={() => onElegir(null)} onSituacion={onSituacion} />
 
   return (
     <div className="max-w-3xl">
@@ -85,7 +89,15 @@ export default function PasoCliente({
   )
 }
 
-function Ficha({ cliente, onCambiar }: { cliente: ClienteFicha; onCambiar: () => void }) {
+function Ficha({
+  cliente,
+  onCambiar,
+  onSituacion,
+}: {
+  cliente: ClienteFicha
+  onCambiar: () => void
+  onSituacion: (s: SituacionCliente | null) => void
+}) {
   const [nav, setNav] = useState<SituacionCliente | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hist, setHist] = useState<ResumenHistorial | null>(null)
@@ -116,7 +128,10 @@ function Ficha({ cliente, onCambiar }: { cliente: ClienteFicha; onCambiar: () =>
       .then(async (r) => {
         const d = await r.json()
         if (!vivo) return
-        if (r.ok) setNav(d.cliente)
+        if (r.ok) {
+          setNav(d.cliente)
+          onSituacion(d.cliente)
+        }
         else setError(d.error ?? 'No se pudo consultar la situación del cliente.')
       })
       .catch((e) => vivo && setError(String(e)))

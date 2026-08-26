@@ -13,7 +13,7 @@
  * (ver docs/SOLICITUD_ENDPOINTS.md §4.2).
  */
 import { join } from 'node:path'
-import { db, setMeta, textoIndexable } from '../src/lib/db.ts'
+import { db, setMeta, SITIOS, textoIndexable } from '../src/lib/db.ts'
 import { paginaClientes, paginaProductos } from '../src/lib/erp.ts'
 
 try {
@@ -42,8 +42,11 @@ async function syncProductos() {
     INSERT INTO productos_nuevo
       (code, description, description2, divisionCode, categoryCode, groupCode,
        barcode, unitMeasure, itemStatus, clasificacion, unitPrice, unitCost,
-       inventory, locationCount)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       priceDetalle, pricePcomercial, priceMayor,
+       inventory, locationCount,
+       inventory01, inventory02, inventory03, inventory04, inventory05,
+       inventory11, inventory12, inventory15)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `)
 
   let total = 0
@@ -68,8 +71,12 @@ async function syncProductos() {
           p.clasificacion ?? '',
           p.unitPrice,
           p.unitCost,
+          p.priceDetalle,
+          p.pricePcomercial,
+          p.priceMayor,
           p.inventory ?? 0,
           p.locationCount ?? 0,
+          ...SITIOS.map((s) => (p as unknown as Record<string, number>)[`inventory${s}`] ?? 0),
         )
       }
       d.exec('COMMIT')

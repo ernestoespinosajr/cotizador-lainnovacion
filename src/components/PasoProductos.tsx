@@ -7,15 +7,28 @@ import type { LineaResuelta } from '@/app/api/solicitud/route'
 import EspinaConfianza from './EspinaConfianza'
 import PanelVariantes, { Estado, Existencia } from './PanelVariantes'
 import DetalleProducto from './DetalleProducto'
+import { calcular, GRUPOS, ROTULO, type GrupoPrecio } from '@/lib/precios'
 import { ESTADOS, pesos } from './ui'
 
-export type LineaEstado = LineaResuelta & { elegido: Candidato | null; incluida: boolean }
+export type LineaEstado = LineaResuelta & {
+  elegido: Candidato | null
+  incluida: boolean
+  /**
+   * Lista de precio elegida por el cotizador. Sin valor significa «la del
+   * cliente»: así una línea nueva hereda el grupo aunque la ficha de NAV llegue
+   * después, y no queda clavada al que hubiera en ese instante.
+   */
+  grupoPrecio?: GrupoPrecio
+  /** Descuento adicional en porcentaje, sobre la lista elegida. */
+  descuento?: number
+}
 
 export default function PasoProductos({
   lineas,
   setLineas,
   ia,
   clienteNo,
+  grupoCliente,
 }: {
   lineas: LineaEstado[]
   setLineas: (f: (prev: LineaEstado[]) => LineaEstado[]) => void
@@ -24,6 +37,8 @@ export default function PasoProductos({
   // la automática. Sin esto, abrir el panel reordenaría la lista sin motivo
   // visible.
   clienteNo: string
+  /** Grupo de precio del cliente en el ERP. Es el que viene preseleccionado. */
+  grupoCliente: GrupoPrecio
 }) {
   const [filtro, setFiltro] = useState<Confianza | null>(null)
   const [abierta, setAbierta] = useState<string | null>(null)
@@ -86,13 +101,15 @@ export default function PasoProductos({
       </div>
 
       <div className="mt-5 overflow-hidden rounded-caja border border-linea">
-        <div className="hidden grid-cols-[3px_auto_4rem_1fr_8rem_7rem_9.5rem] items-center gap-3 border-b-2 border-tinta bg-bruma py-2 pr-4 md:grid">
+        <div className="hidden grid-cols-[3px_auto_3.5rem_1fr_6rem_7.5rem_4.5rem_7rem_9.5rem] items-center gap-3 border-b-2 border-tinta bg-bruma py-2 pr-4 lg:grid">
           <span />
           <span />
           <span className="etiqueta">Cant.</span>
           <span className="etiqueta">Producto</span>
           <span className="etiqueta">Existencia</span>
-          <span className="etiqueta text-right">Precio de lista</span>
+          <span className="etiqueta">Lista de precio</span>
+          <span className="etiqueta">Desc.</span>
+          <span className="etiqueta text-right">Precio unitario</span>
           <span />
         </div>
 
@@ -102,6 +119,7 @@ export default function PasoProductos({
             linea={l}
             onAbrir={() => setAbierta(l.id)}
             onDetalle={() => setDetalle(l.id)}
+            grupoCliente={grupoCliente}
             onCambiar={(c) => actualizar(l.id, c)}
             onQuitar={l.origen.tipo === 'manual' ? () => quitar(l.id) : undefined}
           />
@@ -179,6 +197,7 @@ export default function PasoProductos({
         <DetalleProducto
           producto={conFicha.elegido}
           pedido={conFicha.origen.tipo === 'manual' ? undefined : conFicha.texto}
+          grupoCliente={grupoCliente}
           onCerrar={() => setDetalle(null)}
         />
       )}
@@ -202,12 +221,14 @@ function Fila({
   linea,
   onAbrir,
   onDetalle,
+  grupoCliente,
   onCambiar,
   onQuitar,
 }: {
   linea: LineaEstado
   onAbrir: () => void
   onDetalle: () => void
+  grupoCliente: GrupoPrecio
   onCambiar: (c: Partial<LineaEstado>) => void
   /** Solo llega en las líneas agregadas a mano. */
   onQuitar?: () => void
@@ -219,10 +240,14 @@ function Fila({
   // NAV rechaza el documento entero si una línea lleva un producto bloqueado, así
   // que la casilla se deshabilita: no es una preferencia, es un impedimento.
   const bloqueado = !!p && !cotizable(p)
+  // Sin elección explícita se usa el grupo del cliente: así la línea sigue al
+  // cliente si su ficha llega después de resolverse la solicitud.
+  const grupo = linea.grupoPrecio ?? grupoCliente
+  const cobro = p ? calcular(p, grupoCliente, grupo, linea.descuento ?? 0) : null
 
   return (
     <div
-      className={`grid grid-cols-[3px_auto_1fr] items-start gap-3 border-b border-linea py-3 pr-4 last:border-b-0 md:grid-cols-[3px_auto_4rem_1fr_8rem_7rem_9.5rem] md:items-center ${estado.fondo}`}
+      className={`grid grid-cols-[3px_auto_1fr] items-start gap-3 border-b border-linea py-3 pr-4 last:border-b-0 lg:grid-cols-[3px_auto_3.5rem_1fr_6rem_7.5rem_4.5rem_7rem_9.5rem] lg:items-center ${estado.fondo}`}
     >
       {/* Marca de margen: la señal de confianza que se ve sin abrir nada. Si una
           fila dudosa se viera igual que una resuelta, nadie la abriría. */}
@@ -239,7 +264,7 @@ function Fila({
         />
       </span>
 
-      <span className="hidden md:block">
+      <span className="hidden lg:block">
         <input
           type="number"
           min={1}
@@ -259,7 +284,7 @@ function Fila({
               {/* Una línea agregada a mano no tiene un "pidió" que citar: no
                   vino en la solicitud, la sumó el cotizador hablando. */}
               {manual ? ' · agregado durante la conversación' : ` · pidió: “${linea.texto}”`}
-              <span className="md:hidden"> · {linea.cantidad} u.</span>
+              <span className="lg:hidden"> · {linea.cantidad} u.</span>
             </span>
           </>
         ) : (
@@ -280,7 +305,7 @@ function Fila({
       {/* Solo lo que se compara de un vistazo entre filas. El estado se queda
           porque no es información adicional sino un impedimento: con un producto
           bloqueado el ERP rechaza el documento entero. El resto vive en la ficha. */}
-      <span className="hidden text-xs md:block">
+      <span className="hidden text-xs lg:block">
         {p ? <Existencia inventario={p.inventory} /> : '—'}
         {p && p.itemStatus !== 'Activo' && (
           <span className="mt-0.5 block">
@@ -289,11 +314,69 @@ function Fila({
         )}
       </span>
 
-      <span className="cifra hidden text-right text-sm font-bold md:block">
-        {p?.unitPrice ? pesos.format(p.unitPrice) : <span className="text-humo">—</span>}
+      <span className="hidden lg:block">
+        {p ? (
+          <select
+            value={grupo}
+            onChange={(e) => onCambiar({ grupoPrecio: e.target.value as GrupoPrecio })}
+            className="w-full rounded-control border border-linea bg-papel px-1.5 py-1 text-xs focus:border-tinta focus:outline-none"
+            aria-label={`Lista de precio de ${p.description}`}
+          >
+            {GRUPOS.map((g) => (
+              <option key={g} value={g}>
+                {ROTULO[g]}
+                {g === grupoCliente ? ' ·' : ''}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-xs text-humo">—</span>
+        )}
       </span>
 
-      <span className="hidden items-center justify-end gap-1.5 md:flex">
+      <span className="hidden lg:block">
+        {p ? (
+          <span className="flex items-baseline gap-0.5">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              value={linea.descuento ?? 0}
+              onChange={(e) =>
+                onCambiar({ descuento: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })
+              }
+              className="cifra w-12 rounded-control border border-linea bg-papel px-1.5 py-1 text-sm focus:border-tinta focus:outline-none"
+              aria-label={`Descuento de ${p.description}`}
+            />
+            <span className="text-xs text-humo">%</span>
+          </span>
+        ) : (
+          <span className="text-xs text-humo">—</span>
+        )}
+      </span>
+
+      <span className="hidden text-right lg:block">
+        {cobro?.final != null ? (
+          <>
+            <span className="cifra block text-sm font-bold">{pesos.format(cobro.final)}</span>
+            {/* El tachado solo aparece cuando de verdad hay rebaja: sin esto una
+                línea sin descuento mostraría dos veces la misma cifra. */}
+            {cobro.base != null && cobro.final < cobro.base - 0.005 && (
+              <span className="cifra block text-xs text-humo line-through">
+                {pesos.format(cobro.base)}
+              </span>
+            )}
+            {cobro.noSePuedeSubir && (
+              <span className="block text-xs font-semibold text-ambar">no sube</span>
+            )}
+          </>
+        ) : (
+          <span className="cifra text-sm text-humo">—</span>
+        )}
+      </span>
+
+      <span className="hidden items-center justify-end gap-1.5 lg:flex">
         <button type="button" onClick={onAbrir} className="boton-borde !px-2.5 !py-1 !text-[0.65rem]">
           {p ? 'Variantes' : 'Buscar'}
         </button>
@@ -306,9 +389,9 @@ function Fila({
         </span>
       </span>
 
-      <span className="col-start-3 flex items-center gap-3 md:hidden">
+      <span className="col-start-3 flex items-center gap-3 lg:hidden">
         <span className="cifra text-sm font-bold">
-          {p?.unitPrice ? pesos.format(p.unitPrice) : '—'}
+          {cobro?.final != null ? pesos.format(cobro.final) : '—'}
         </span>
         <button type="button" onClick={onAbrir} className="boton-borde !px-2 !py-0.5 !text-[0.65rem]">
           {p ? 'Variantes' : 'Buscar'}

@@ -266,7 +266,20 @@ export async function consultarCliente(no: string): Promise<ClienteNav> {
   return r.Customer as ClienteNav
 }
 
-export type LineaPedida = { code: string; cantidad: number }
+export type LineaPedida = {
+  code: string
+  cantidad: number
+  /**
+   * Porcentaje de descuento sobre el precio que NAV aplique. Ya viene con el
+   * cambio de lista de precio incorporado; ver `precios.ts`.
+   *
+   * Es lo único que NAV acepta para mover el precio: probado contra la pasarela,
+   * ignora Unit_Price, UnitPrice, Price y Line_Discount_Amount. Admite decimales
+   * y hasta 100; un negativo lo rechaza con «Line_Discount_Pct (-5) debe estar
+   * entre 0 y 100».
+   */
+  descuento?: number
+}
 
 /**
  * Crea la cotización en NAV y devuelve el documento valorado.
@@ -294,7 +307,13 @@ export async function crearCotizacion(datos: {
     .map(
       (l) =>
         `<Line><Item_No>${escapar(l.code)}</Item_No>` +
-        `<Quantity>${escapar(l.cantidad)}</Quantity></Line>`,
+        `<Quantity>${escapar(l.cantidad)}</Quantity>` +
+        // Se omite cuando es cero: una línea sin descuento no tiene por qué
+        // llevar el nodo, y así el XML sigue siendo el documentado.
+        (l.descuento && l.descuento > 0
+          ? `<Line_Discount_Pct>${escapar(l.descuento)}</Line_Discount_Pct>`
+          : '') +
+        `</Line>`,
     )
     .join('')
 

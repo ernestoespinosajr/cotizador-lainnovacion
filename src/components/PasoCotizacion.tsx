@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { CotizacionNav } from '@/lib/nav'
 import type { ClienteFicha } from '@/app/api/clientes/route'
 import type { LineaEstado } from './PasoProductos'
+import { calcular, type GrupoPrecio } from '@/lib/precios'
 import { cotizable } from '@/lib/producto'
 import { Etiqueta, pesos } from './ui'
 
@@ -20,10 +21,13 @@ type Emitida = { cotizacion: CotizacionNav; referencia: string; cotizador: strin
 export default function PasoCotizacion({
   cliente,
   lineas,
+  grupoCliente,
   onVolver,
 }: {
   cliente: ClienteFicha | null
   lineas: LineaEstado[]
+  /** Necesario para convertir la lista elegida en el descuento que NAV acepta. */
+  grupoCliente: GrupoPrecio
   onVolver: () => void
 }) {
   const [emitiendo, setEmitiendo] = useState(false)
@@ -53,10 +57,18 @@ export default function PasoCotizacion({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clienteNo: cliente?.no,
+          // El descuento que viaja ya lleva dentro el cambio de lista: NAV no
+          // acepta un precio ni un grupo, solo un porcentaje. Ver `precios.ts`.
           lineas: incluidas.map((l) => ({
             code: l.elegido!.code,
             cantidad: l.cantidad,
             texto: l.texto,
+            descuento: calcular(
+              l.elegido!,
+              grupoCliente,
+              l.grupoPrecio ?? grupoCliente,
+              l.descuento ?? 0,
+            ).descuentoNav,
           })),
         }),
       })

@@ -51,10 +51,27 @@ export type ProductoERP = {
   clasificacion: string
   unitPrice: number | null
   unitCost: number | null
-  /** Inventario sumado de todas las ubicaciones. */
+  /**
+   * Los tres precios que maneja el negocio, uno por grupo de cliente. NAV aplica
+   * el del grupo que el cliente tenga en su ficha; estos sirven para mostrarlos
+   * y para calcular el descuento equivalente cuando el cotizador elige otro.
+   */
+  priceDetalle: number | null
+  pricePcomercial: number | null
+  priceMayor: number | null
+  /** Inventario sumado de TODAS las ubicaciones, también las que no se detallan. */
   inventory: number
-  /** En cuántas ubicaciones hay existencia. */
+  /** En cuántas ubicaciones está dado de alta el artículo, tenga o no unidades. */
   locationCount: number
+  /** Existencia por sitio. Tiendas 01-05, almacenes 11, 12 y 15. */
+  inventory01: number
+  inventory02: number
+  inventory03: number
+  inventory04: number
+  inventory05: number
+  inventory11: number
+  inventory12: number
+  inventory15: number
 }
 
 export type ClienteERP = {

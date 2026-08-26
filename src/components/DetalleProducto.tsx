@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import type { Candidato } from '@/lib/buscar'
+import { GRUPOS, precioDe, ROTULO, type GrupoPrecio } from '@/lib/precios'
 import { pesos } from './ui'
 
 /**
@@ -16,11 +17,14 @@ import { pesos } from './ui'
 export default function DetalleProducto({
   producto,
   pedido,
+  grupoCliente,
   onCerrar,
 }: {
   producto: Candidato
   /** Lo que decía la solicitud. Ausente en las líneas agregadas a mano. */
   pedido?: string
+  /** Para marcar cuál de las tres listas le corresponde a este cliente. */
+  grupoCliente: GrupoPrecio
   onCerrar: () => void
 }) {
   const cerrarRef = useRef<HTMLButtonElement>(null)
@@ -78,45 +82,40 @@ export default function DetalleProducto({
                 <span className="font-bold text-rojo">Sin existencia</span>
               )}
             </p>
-            {/*
-              Ubicaciones, oculto a la espera del reparto por sucursal.
+            <Sitios producto={p} />
+          </section>
 
-              `p.locationCount` sigue llegando y dice en cuántas ubicaciones está
-              dado de alta el artículo, que no es lo mismo que dónde están las
-              unidades: 30.455 productos del catálogo —el 48%— aparecen con
-              ubicaciones y cero existencia. Un número sin el reparto no le
-              resuelve nada al vendedor, que lo que necesita saber es en qué
-              sucursal está la mercancía.
+          <Separador />
 
-              Cuando el ERP exponga el detalle por ubicación, esto vuelve acá
-              como una lista de sucursal y cantidad. Hoy no existe: se probaron
-              los parámetros includeLocations, includeStock y detail en
-              /api/catalogos/productos y las rutas /catalogos/ubicaciones y
-              /productos/{code}/ubicaciones, y todas devuelven el HTML del SPA.
-
-              {p.locationCount > 0 && (
-                <p className="mt-1.5 text-xs text-humo">
-                  Dado de alta en {p.locationCount} ubicaciones.
-                </p>
-              )}
-            */}
+          <section>
+            <div className="etiqueta">Precios de lista</div>
+            <div className="mt-1.5 flex flex-wrap gap-x-8 gap-y-2">
+              {GRUPOS.map((g) => {
+                const v = precioDe(p, g)
+                const suyo = g === grupoCliente
+                return (
+                  <div key={g}>
+                    <div className={`text-xs ${suyo ? 'font-bold text-tinta' : 'text-humo'}`}>
+                      {ROTULO[g]}
+                      {suyo && ' · el suyo'}
+                    </div>
+                    <div className={`cifra text-sm ${suyo ? 'font-bold' : ''}`}>
+                      {v ? pesos.format(v) : <span className="text-rojo">—</span>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </section>
 
           <Separador />
 
           <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-            <Dato rotulo="Precio de lista">
-              {p.unitPrice ? (
-                <span className="cifra font-bold">{pesos.format(p.unitPrice)}</span>
-              ) : (
-                <span className="text-rojo">sin precio</span>
-              )}
-            </Dato>
             <Dato rotulo="Unidad">{p.unitMeasure || '—'}</Dato>
+            <Dato rotulo="Clasificación">{p.clasificacion || '—'}</Dato>
             <Dato rotulo="Estado en el ERP">
               <EstadoLargo estado={p.itemStatus} />
             </Dato>
-            <Dato rotulo="Clasificación">{p.clasificacion || '—'}</Dato>
           </div>
 
           {(p.uso || p.patron) && (
@@ -174,6 +173,60 @@ export default function DetalleProducto({
           cotización.
         </footer>
       </div>
+    </div>
+  )
+}
+
+/** Tiendas 01-05, almacenes 11, 12 y 15. Solo se listan los que tienen unidades. */
+const SITIOS = [
+  ['01', 'Tienda 01'],
+  ['02', 'Tienda 02'],
+  ['03', 'Tienda 03'],
+  ['04', 'Tienda 04'],
+  ['05', 'Tienda 05'],
+  ['11', 'Almacén 11'],
+  ['12', 'Almacén 12'],
+  ['15', 'Almacén 15'],
+] as const
+
+/**
+ * Reparto de la existencia.
+ *
+ * El ERP detalla ocho sitios pero el artículo puede estar en más: medido sobre
+ * 400 productos, en 58 —el 14,5%— el total es mayor que la suma de los ocho, y
+ * el conteo de ubicaciones llega a 28. Por eso se rotula «tiendas y almacenes
+ * principales» y, cuando la cuenta no cuadra, se dice cuánto queda fuera en vez
+ * de dejar que el vendedor lo sume y le falten unidades.
+ */
+function Sitios({ producto }: { producto: Candidato }) {
+  const p = producto
+  const filas = SITIOS.map(([k, rotulo]) => ({
+    rotulo,
+    cantidad: (p as unknown as Record<string, number>)[`inventory${k}`] ?? 0,
+  })).filter((f) => f.cantidad > 0)
+
+  if (filas.length === 0) return null
+
+  const detallado = filas.reduce((a, f) => a + f.cantidad, 0)
+  const fuera = Math.max(0, p.inventory - detallado)
+
+  return (
+    <div className="mt-3">
+      <div className="etiqueta">En tiendas y almacenes principales</div>
+      <div className="mt-1.5 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-3">
+        {filas.map((f) => (
+          <div key={f.rotulo} className="flex items-baseline justify-between gap-2 text-sm">
+            <span className="text-humo">{f.rotulo}</span>
+            <span className="cifra font-semibold">{f.cantidad.toLocaleString('es-DO')}</span>
+          </div>
+        ))}
+      </div>
+      {fuera > 0 && (
+        <p className="mt-2 text-xs text-humo">
+          Otras <span className="cifra">{fuera.toLocaleString('es-DO')}</span> unidades están en
+          ubicaciones que el ERP no detalla.
+        </p>
+      )}
     </div>
   )
 }

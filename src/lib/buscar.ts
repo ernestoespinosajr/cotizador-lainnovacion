@@ -29,8 +29,19 @@ export type Producto = {
   clasificacion: string
   unitPrice: number | null
   unitCost: number | null
+  priceDetalle: number | null
+  pricePcomercial: number | null
+  priceMayor: number | null
   inventory: number
   locationCount: number
+  inventory01: number
+  inventory02: number
+  inventory03: number
+  inventory04: number
+  inventory05: number
+  inventory11: number
+  inventory12: number
+  inventory15: number
 }
 
 export type Confianza = 'exacto' | 'probable' | 'ambiguo' | 'sin_match'

@@ -51,6 +51,11 @@ function migrar(d: DatabaseSync) {
       locationCount INTEGER NOT NULL DEFAULT 0
     );
 
+    -- Los tres precios y el inventario por sitio llegaron después de la primera
+    -- versión y se agregan más abajo con ALTER, no acá: IF NOT EXISTS no añade
+    -- columnas a una tabla que ya existe, y sin eso un espejo ya sincronizado
+    -- se quedaría sin ellas para siempre.
+
     CREATE INDEX IF NOT EXISTS idx_prod_barcode  ON productos(barcode);
     CREATE INDEX IF NOT EXISTS idx_prod_status   ON productos(itemStatus);
     CREATE INDEX IF NOT EXISTS idx_prod_grupo    ON productos(groupCode);
@@ -117,6 +122,35 @@ function migrar(d: DatabaseSync) {
       valor TEXT NOT NULL
     );
   `)
+
+  agregarColumnas(d, 'productos', [
+    ['priceDetalle', 'REAL'],
+    ['pricePcomercial', 'REAL'],
+    ['priceMayor', 'REAL'],
+    ...SITIOS.map((s) => [`inventory${s}`, 'REAL NOT NULL DEFAULT 0'] as [string, string]),
+  ])
+}
+
+/**
+ * Sitios donde el ERP reporta existencia: 01 a 05 son tiendas y 11, 12 y 15
+ * almacenes.
+ *
+ * No son todas las ubicaciones que existen. Medido sobre 400 productos, en 58
+ * —el 14,5%— el total del ERP es mayor que la suma de estos ocho, y el
+ * `locationCount` llega a 28. Por eso la interfaz habla de «tiendas y almacenes
+ * principales» y nunca presenta este desglose como el reparto completo.
+ */
+export const SITIOS = ['01', '02', '03', '04', '05', '11', '12', '15'] as const
+export const ALMACENES = new Set(['11', '12', '15'])
+
+/** Añade columnas que falten, para que un espejo viejo no haya que rehacerlo. */
+function agregarColumnas(d: DatabaseSync, tabla: string, cols: [string, string][]) {
+  const hay = new Set(
+    (d.prepare(`PRAGMA table_info(${tabla})`).all() as { name: string }[]).map((c) => c.name),
+  )
+  for (const [nombre, tipo] of cols) {
+    if (!hay.has(nombre)) d.exec(`ALTER TABLE ${tabla} ADD COLUMN ${nombre} ${tipo}`)
+  }
 }
 
 export function setMeta(clave: string, valor: string) {

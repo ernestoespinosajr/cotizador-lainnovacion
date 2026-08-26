@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   const { clienteNo, ubicacion, lineas } = (await req.json()) as {
     clienteNo?: string
     ubicacion?: string
-    lineas?: { code: string; cantidad: number; texto?: string }[]
+    lineas?: { code: string; cantidad: number; texto?: string; descuento?: number }[]
   }
 
   const items = (lineas ?? []).filter((l) => l.code && l.cantidad > 0)
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
       clienteNo,
       referencia,
       ubicacion,
-      lineas: items.map((l) => ({ code: l.code, cantidad: l.cantidad })),
+      lineas: items.map((l) => ({ code: l.code, cantidad: l.cantidad, descuento: l.descuento })),
     })
 
     // Emitida sin problemas: las correcciones del cotizador pasan a ser
