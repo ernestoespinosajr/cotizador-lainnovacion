@@ -18,15 +18,39 @@ apunte a él: sin eso los pasos 2 y 4 no funcionan, aunque la búsqueda de
 productos siga andando contra el espejo local.
 
 ```bash
-cd ../Api_Mobilinventory && dotnet run
+cd ../Api_Mobilinventory && PROXY_PORT=5055 dotnet run --no-launch-profile
 ```
 
-Ese proyecto fija el puerto 5000 en el código. En macOS lo ocupa el receptor de
-AirPlay, así que hay que desactivarlo (Ajustes → General → AirDrop y Handoff) o
-pedirle al desarrollador que lo haga configurable.
+`PROXY_PORT` existe porque el proyecto fijaba el 5000 en el código y en macOS lo
+ocupa el receptor de AirPlay. Sin la variable se comporta como siempre y escucha
+en el 5000, así que el despliegue de la empresa no se entera.
+
+Si la máquina solo tiene .NET 10 y el proxy apunta a net8.0, se agrega
+`DOTNET_ROLL_FORWARD=Major` delante del comando en vez de instalar el runtime
+viejo.
 
 `npm run sync` es obligatorio antes del primer arranque: sin el espejo local la app no puede
 buscar nada. Conviene dejarlo en un cron de madrugada.
+
+### Al actualizar una instalación que ya existía
+
+**Después de un `git pull` que agregue columnas al espejo hay que volver a
+sincronizar.** El esquema se migra solo —las columnas se crean con `ALTER`— pero
+se crean vacías: los datos solo llegan con un volcado.
+
+```bash
+npm run sync
+```
+
+El síntoma de no hacerlo es engañoso, y por eso conviene tenerlo presente: no
+aparece ningún error. Los tres precios caen al precio genérico, así que el
+selector de lista muestra la misma cifra en las tres opciones y parece que no
+hiciera nada; y el desglose por tienda de la ficha del producto simplemente no
+se muestra. Ambas cosas se ven como si la función no existiera, no como una
+falla.
+
+Vale para cualquier versión que toque el catálogo. La última que lo hizo agregó
+`priceDetalle`, `pricePcomercial`, `priceMayor` y la existencia por sitio.
 
 ## Cómo está armado
 
