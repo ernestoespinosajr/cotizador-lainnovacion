@@ -25,7 +25,14 @@ export async function POST(req: Request) {
   const { clienteNo, ubicacion, lineas } = (await req.json()) as {
     clienteNo?: string
     ubicacion?: string
-    lineas?: { code: string; cantidad: number; texto?: string; descuento?: number }[]
+    lineas?: {
+      code: string
+      cantidad: number
+      texto?: string
+      descuento?: number
+      /** Precio unitario forzado. Ver `LineaPedida` en `lib/nav.ts`. */
+      precio?: number
+    }[]
   }
 
   const items = (lineas ?? []).filter((l) => l.code && l.cantidad > 0)
@@ -47,7 +54,12 @@ export async function POST(req: Request) {
       clienteNo,
       referencia,
       ubicacion,
-      lineas: items.map((l) => ({ code: l.code, cantidad: l.cantidad, descuento: l.descuento })),
+      lineas: items.map((l) => ({
+        code: l.code,
+        cantidad: l.cantidad,
+        descuento: l.descuento,
+        precio: l.precio,
+      })),
     })
 
     // Emitida sin problemas: las correcciones del cotizador pasan a ser

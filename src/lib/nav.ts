@@ -7,17 +7,34 @@
  *
  *     Cotizador → SoapProxyNav → NAV SOAP → WebRequest(pxmlRequest, pxmlResponse)
  *
- * Solo existen dos servicios; se sondearon otros diez (consulta de ítem, precios,
- * antigüedad de deuda, sustitutos, consulta de cotización) y todos devuelven
- * "Unknown Request_ID".
+ * Los servicios disponibles hoy:
+ *
+ *   LI_QUERY_CUSTOMER    → balance, límite de crédito, bloqueo, condiciones de pago
+ *   LI_CREATE_QUOTE      → crea la cotización y devuelve precios reales, ITBIS y totales
+ *   LI_GET_QUOTE         → relee una cotización existente (mismo shape que create)
+ *   LI_ADD_QUOTE_LINE    → agrega una o varias líneas a una cotización abierta
+ *   LI_UPDATE_QUOTE_LINE → cambia cantidad, precio o descuento de una línea
+ *   LI_REMOVE_QUOTE_LINE → borra una línea por su Line_No
+ *
+ * Las tres operaciones de edición sólo funcionan con la cotización en estado
+ * Open y devuelven el documento completo refrescado, así el llamador no tiene
+ * que reconstruir estado local. Se sondearon otras siete (consulta de ítem,
+ * precios, antigüedad de deuda, sustitutos) y devuelven "Unknown Request_ID".
  *
  *   LI_QUERY_CUSTOMER → balance, límite de crédito, bloqueo, condiciones de pago
  *   LI_CREATE_QUOTE   → crea la cotización y devuelve precios reales, ITBIS y totales
  *
- * `LI_CREATE_QUOTE` es a la vez el motor de precios y la persistencia: NAV aplica
- * el grupo de precio del cliente. Por eso el precio del espejo local es solo
- * referencia — para el ítem 001010 el espejo dice 5.995,00 y NAV devuelve
- * 5.000,00 al cliente 004789 y 4.152,54 al 018667.
+ * `LI_CREATE_QUOTE` es a la vez el motor de precios y la persistencia: por
+ * defecto NAV aplica el grupo de precio del cliente, y opcionalmente se puede
+ * mandar `Unit_Price` con `Use_Manual_Price=true` por línea para forzar un
+ * precio específico (incluido cero, para regalar el producto). Sin ese flag,
+ * NAV sobreescribe cualquier `Unit_Price` con el de la lista.
+ *
+ * El precio del espejo local es solo referencia — para el ítem 001010 el
+ * espejo dice 5.995,00 y NAV devuelve 5.000,00 al cliente 004789 y 4.152,54
+ * al 018667. Cuando se usa precio manual, el número que viaja lo calcula el
+ * cotizador desde el espejo: si espejo y ERP no están sincronizados el precio
+ * final puede diferir del que el ERP hubiera aplicado por su cuenta.
  */
 
 const url = () => process.env.NAV_PROXY_URL ?? ''
@@ -225,7 +242,7 @@ async function llamar(xml: string): Promise<Record<string, any>> {
   } catch (e) {
     throw new ErrorNav(
       `No se pudo contactar la pasarela NAV en ${url()}. ` +
-        `Verificá que SoapProxyNav esté corriendo. (${e instanceof Error ? e.message : e})`,
+        `Verifica que SoapProxyNav esté corriendo. (${e instanceof Error ? e.message : e})`,
     )
   }
 
@@ -273,12 +290,17 @@ export type LineaPedida = {
    * Porcentaje de descuento sobre el precio que NAV aplique. Ya viene con el
    * cambio de lista de precio incorporado; ver `precios.ts`.
    *
-   * Es lo único que NAV acepta para mover el precio: probado contra la pasarela,
-   * ignora Unit_Price, UnitPrice, Price y Line_Discount_Amount. Admite decimales
-   * y hasta 100; un negativo lo rechaza con «Line_Discount_Pct (-5) debe estar
-   * entre 0 y 100».
+   * Admite decimales y hasta 100; un negativo lo rechaza con «Line_Discount_Pct
+   * (-5) debe estar entre 0 y 100». Se ignora si viaja `precio`.
    */
   descuento?: number
+  /**
+   * Precio unitario forzado. Cuando llega, se envían `Unit_Price` y
+   * `Use_Manual_Price=true`, y NAV ignora la lista del grupo del cliente y
+   * cualquier `Line_Discount_Pct`. El cero es válido y regala el producto de
+   * forma explícita (no significa «no lo envié»: para eso se omite el campo).
+   */
+  precio?: number
 }
 
 /**
@@ -303,19 +325,7 @@ export async function crearCotizacion(datos: {
     throw new ErrorNav('No se puede crear una cotización sin líneas.')
   }
 
-  const lineas = datos.lineas
-    .map(
-      (l) =>
-        `<Line><Item_No>${escapar(l.code)}</Item_No>` +
-        `<Quantity>${escapar(l.cantidad)}</Quantity>` +
-        // Se omite cuando es cero: una línea sin descuento no tiene por qué
-        // llevar el nodo, y así el XML sigue siendo el documentado.
-        (l.descuento && l.descuento > 0
-          ? `<Line_Discount_Pct>${escapar(l.descuento)}</Line_Discount_Pct>`
-          : '') +
-        `</Line>`,
-    )
-    .join('')
+  const lineas = datos.lineas.map(nodoLinea).join('')
 
   const r = await llamar(
     `<Request><Request_ID>LI_CREATE_QUOTE</Request_ID><Request_Body>` +
@@ -327,10 +337,130 @@ export async function crearCotizacion(datos: {
       `</Request_Body></Request>`,
   )
 
-  if (!r.QuoteNo) throw new ErrorNav('NAV no devolvió número de cotización.')
+  return armarCotizacion(r, { exigirNumero: true })
+}
 
+/**
+ * Devuelve la cotización valorada tal como quedó guardada en NAV.
+ *
+ * Sirve para refrescar la vista después de editar líneas y para regenerar el
+ * PDF sin volver a cotizar. La respuesta tiene la misma forma que la de
+ * `crearCotizacion`.
+ */
+export async function consultarCotizacion(quoteNo: string): Promise<CotizacionNav> {
+  const r = await llamar(
+    `<Request><Request_ID>LI_GET_QUOTE</Request_ID><Request_Body>` +
+      `<Quote_No>${escapar(quoteNo)}</Quote_No>` +
+      `</Request_Body></Request>`,
+  )
+  return armarCotizacion(r, { exigirNumero: true })
+}
+
+/**
+ * Agrega una o varias líneas a una cotización existente.
+ *
+ * Requiere que la cotización esté en `Status = Open`; si fue liberada o
+ * aprobada, NAV rechaza sin tocar nada. Si cualquier línea del lote falla, NAV
+ * revierte todas las de la llamada y la cotización queda como estaba.
+ */
+export async function agregarLineas(quoteNo: string, lineas: LineaPedida[]): Promise<CotizacionNav> {
+  if (lineas.length === 0) {
+    throw new ErrorNav('No hay líneas para agregar.')
+  }
+  const nodos = lineas.map(nodoLinea).join('')
+  const r = await llamar(
+    `<Request><Request_ID>LI_ADD_QUOTE_LINE</Request_ID><Request_Body>` +
+      `<Quote_No>${escapar(quoteNo)}</Quote_No>` +
+      `<Lines>${nodos}</Lines>` +
+      `</Request_Body></Request>`,
+  )
+  return armarCotizacion(r, { exigirNumero: true })
+}
+
+/**
+ * Modifica los campos editables de una línea. `undefined` significa «no tocar»:
+ * si solo llega `cantidad`, el precio y el descuento actuales se quedan como
+ * están. Requiere `Status = Open`.
+ */
+export async function actualizarLinea(
+  quoteNo: string,
+  lineNo: number,
+  cambios: { cantidad?: number; precio?: number; descuento?: number },
+): Promise<CotizacionNav> {
+  const partes: string[] = [
+    `<Quote_No>${escapar(quoteNo)}</Quote_No>`,
+    `<Line_No>${escapar(lineNo)}</Line_No>`,
+  ]
+  if (cambios.cantidad != null) {
+    partes.push(`<Quantity>${escapar(cambios.cantidad)}</Quantity>`)
+  }
+  if (cambios.precio != null) {
+    // Ambos campos son necesarios: NAV ignora `Unit_Price` sin el flag.
+    partes.push(`<Unit_Price>${cambios.precio.toFixed(2)}</Unit_Price>`)
+    partes.push(`<Use_Manual_Price>true</Use_Manual_Price>`)
+  }
+  if (cambios.descuento != null) {
+    partes.push(`<Line_Discount_Pct>${escapar(cambios.descuento)}</Line_Discount_Pct>`)
+  }
+  if (partes.length === 2) {
+    throw new ErrorNav('No hay cambios para aplicar a la línea.')
+  }
+  const r = await llamar(
+    `<Request><Request_ID>LI_UPDATE_QUOTE_LINE</Request_ID><Request_Body>` +
+      partes.join('') +
+      `</Request_Body></Request>`,
+  )
+  return armarCotizacion(r, { exigirNumero: true })
+}
+
+/** Borra una línea por su `LineNo`. Requiere `Status = Open`. */
+export async function borrarLinea(quoteNo: string, lineNo: number): Promise<CotizacionNav> {
+  const r = await llamar(
+    `<Request><Request_ID>LI_REMOVE_QUOTE_LINE</Request_ID><Request_Body>` +
+      `<Quote_No>${escapar(quoteNo)}</Quote_No>` +
+      `<Line_No>${escapar(lineNo)}</Line_No>` +
+      `</Request_Body></Request>`,
+  )
+  return armarCotizacion(r, { exigirNumero: true })
+}
+
+/**
+ * Arma el XML `<Line>...</Line>` que aceptan `LI_CREATE_QUOTE` y `LI_ADD_QUOTE_LINE`.
+ *
+ * Precedencia: precio manual gana sobre descuento. Con `Use_Manual_Price` NAV
+ * ignora el `Line_Discount_Pct` que hubiera llegado, así que mandar ambos es
+ * ruido; se emite solo el bloque relevante.
+ */
+function nodoLinea(l: LineaPedida): string {
+  const partes = [
+    `<Item_No>${escapar(l.code)}</Item_No>`,
+    `<Quantity>${escapar(l.cantidad)}</Quantity>`,
+  ]
+  if (l.precio != null) {
+    // Dos decimales fijos para que 0 viaje como "0.00" y no como "0", que la
+    // pasarela rechazó en pruebas de la primera versión del proxy.
+    partes.push(`<Unit_Price>${l.precio.toFixed(2)}</Unit_Price>`)
+    partes.push(`<Use_Manual_Price>true</Use_Manual_Price>`)
+  } else if (l.descuento && l.descuento > 0) {
+    // Se omite cuando es cero: una línea sin descuento no tiene por qué llevar
+    // el nodo, y así el XML sigue siendo el documentado.
+    partes.push(`<Line_Discount_Pct>${escapar(l.descuento)}</Line_Discount_Pct>`)
+  }
+  return `<Line>${partes.join('')}</Line>`
+}
+
+/**
+ * Da forma a `CotizacionNav` desde la respuesta cruda de NAV.
+ *
+ * Los cinco servicios de cotización (`create`, `get`, `add`, `update`, `remove`)
+ * devuelven la misma estructura, así que el parseo vive acá.
+ */
+function armarCotizacion(r: Record<string, any>, opts: { exigirNumero?: boolean } = {}): CotizacionNav {
+  if (opts.exigirNumero && !r.QuoteNo) {
+    throw new ErrorNav('NAV no devolvió número de cotización.')
+  }
   return {
-    QuoteNo: String(r.QuoteNo),
+    QuoteNo: r.QuoteNo ? String(r.QuoteNo) : '',
     Header: r.Header ?? {},
     Customer: r.Customer ?? {},
     ShipTo: r.ShipTo ?? {},

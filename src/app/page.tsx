@@ -1,6 +1,7 @@
 'use client'
 
 import Image from 'next/image'
+import Link from 'next/link'
 import { useState } from 'react'
 import type { ClienteFicha } from '@/app/api/clientes/route'
 import type { SituacionCliente } from '@/app/api/clientes/[no]/route'
@@ -24,6 +25,10 @@ export default function Page() {
   const [situacion, setSituacion] = useState<SituacionCliente | null>(null)
   const [lineas, setLineas] = useState<LineaEstado[]>([])
   const [ia, setIa] = useState(false)
+  // Toggle global de presentación del descuento. Vive en el padre para que el
+  // vendedor pueda encenderlo/apagarlo desde el paso de productos y llegue al
+  // paso de emisión ya en el modo elegido.
+  const [precioConDescuento, setPrecioConDescuento] = useState(false)
 
   /**
    * El cliente va primero y condiciona todo lo que sigue: define los precios que
@@ -124,6 +129,13 @@ export default function Page() {
                   {p}
                 </button>
               ))}
+              <span className="mx-1 h-4 w-px bg-linea" aria-hidden />
+              <Link
+                href="/cotizacion"
+                className="rounded-control px-2.5 py-1.5 text-xs font-bold uppercase tracking-wide text-humo transition-colors hover:bg-bruma hover:text-tinta"
+              >
+                Abrir existente
+              </Link>
             </nav>
           </div>
 
@@ -218,6 +230,8 @@ export default function Page() {
               ia={ia}
               clienteNo={cliente?.no ?? ''}
               grupoCliente={grupoDe(situacion?.grupoPrecio)}
+              precioConDescuento={precioConDescuento}
+              setPrecioConDescuento={setPrecioConDescuento}
             />
             <button type="button" className="boton mt-6" onClick={() => setPaso(3)}>
               Continuar
@@ -234,6 +248,8 @@ export default function Page() {
               cliente={cliente}
               lineas={lineas}
               grupoCliente={grupoDe(situacion?.grupoPrecio)}
+              precioConDescuento={precioConDescuento}
+              setPrecioConDescuento={setPrecioConDescuento}
               onVolver={() => setPaso(2)}
             />
           </Seccion>

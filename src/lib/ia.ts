@@ -83,11 +83,16 @@ const ESQUEMA_LINEAS = {
             description:
               'El mismo producto con la ortografía corregida y el término que usaría un catálogo dominicano.',
           },
+          codigo: {
+            type: ['string', 'null'],
+            description:
+              'Código del artículo en el ERP (ítem, referencia, SKU) SI el cliente lo escribió. Null si no aparece.',
+          },
           cantidad: { type: 'number' },
           unidad: { type: ['string', 'null'] },
           lineaOriginal: { type: 'integer', description: 'Número de línea del texto de origen.' },
         },
-        required: ['texto', 'busqueda', 'cantidad', 'unidad', 'lineaOriginal'],
+        required: ['texto', 'busqueda', 'codigo', 'cantidad', 'unidad', 'lineaOriginal'],
         additionalProperties: false,
       },
     },
@@ -113,7 +118,13 @@ Sobre "busqueda": es lo que se va a buscar en el catálogo del ERP, y es distint
 - Corrige las faltas: "nebera" es nevera, "microhondas" es microondas, "labadora" es lavadora, "ornillas" es hornillas.
 - Usa la palabra del catálogo, no la del cliente: en República Dominicana se dice "chapa" pero el catálogo dice CERRADURA; "refrigerador" es NEVERA; "greca" es GRECA; "zafacón" es ZAFACON; "arrocera" es OLLA ARROCERA.
 - Deja el singular y quita muletillas, pero conserva marca, modelo y medidas.
-- Si el término del cliente ya es el correcto, repítelo igual.`
+- Si el término del cliente ya es el correcto, repítelo igual.
+
+Sobre "codigo": es el identificador que el cliente pone del artículo cuando LO CONOCE.
+- Suele aparecer con etiquetas: "código", "cod", "SKU", "ref", "referencia", "ítem", "art.", "código de barras" o directamente sin etiqueta al lado del producto.
+- Formato típico del ERP: 6 dígitos con ceros a la izquierda (001010, 049374). También hay códigos de barras de 8 a 13 dígitos.
+- No confundir con cantidad, medida, potencia, modelo del fabricante ni número de línea. "500W" y "56\\"" son características, no códigos; "N56LG" es modelo del fabricante, no código del ERP.
+- Si no hay código, pon null. Ante la duda, null.`
 
 export async function extraerLineas(texto: string): Promise<LineaSolicitud[]> {
   const c = cliente()
@@ -129,6 +140,7 @@ export async function extraerLineas(texto: string): Promise<LineaSolicitud[]> {
       lineas: {
         texto: string
         busqueda: string
+        codigo: string | null
         cantidad: number
         unidad: string | null
         lineaOriginal: number
@@ -145,7 +157,7 @@ export async function extraerLineas(texto: string): Promise<LineaSolicitud[]> {
         busqueda: l.busqueda?.trim() || l.texto.trim(),
         cantidad: l.cantidad > 0 ? l.cantidad : 1,
         unidad: l.unidad ?? null,
-        codigoCliente: null,
+        codigoCliente: l.codigo?.trim() || null,
         origen: { tipo: 'texto' as const, linea: l.lineaOriginal ?? i + 1 },
       }))
   } catch (e) {

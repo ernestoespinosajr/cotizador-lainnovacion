@@ -200,7 +200,9 @@ export async function generarPdf(datos: DatosPdf): Promise<Buffer> {
       unid: l.UnitOfMeasureCode ?? '',
       ctd: money(l.Quantity),
       precio: money(l.UnitPrice),
-      desc_pct: money(l.LineDiscountPct),
+      // Un "0.00" en la columna de descuento se leía como si hubiera descuento;
+      // se blanquea cuando de verdad no lo hay.
+      desc_pct: Number(l.LineDiscountPct) > 0 ? money(l.LineDiscountPct) : '',
       subtot: money(l.LineAmount),
       itbis: money(itbisLinea),
       total: money(l.AmountIncludingVAT),
@@ -242,9 +244,20 @@ export async function generarPdf(datos: DatosPdf): Promise<Buffer> {
   obs.forEach((o, i) => doc.text(o, M + 4, yBloque + 14 + i * 8, { width: wObs - 8 }))
 
   const t = c.Totals
+  // `InvoiceDiscountAmount` es el descuento de cabecera y en la práctica llega
+  // en cero: los descuentos se aplican por línea. Se suman los
+  // `LineDiscountAmount` para que el pie muestre el ahorro real. Si el vendedor
+  // eligió aplicar el descuento al precio (Use_Manual_Price), NAV devuelve
+  // LineDiscountAmount=0 en cada línea y este total sale en cero, con lo cual
+  // el renglón "Desc." queda oculto automáticamente.
+  const descuentoTotal =
+    (Number(t.InvoiceDiscountAmount) || 0) +
+    c.Lineas.reduce((acc, l) => acc + (Number(l.LineDiscountAmount) || 0), 0)
   const totales: [string, string, boolean][] = [
     ['Sub-Total', money(t.TotalAmountExclVAT ?? t.SubTotal), false],
-    ['Desc.', money(t.InvoiceDiscountAmount), false],
+    ...((descuentoTotal > 0
+      ? [['Desc.', money(descuentoTotal), false]]
+      : []) as [string, string, boolean][]),
     ['ITBIS', money(t.VATAmount), false],
     ['TOTAL', money(t.TotalAmountInclVAT), true],
   ]

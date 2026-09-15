@@ -71,7 +71,7 @@ function indice(): Indice | null {
   if (buf.length < esperado) {
     console.error(
       `[vectores] el archivo tiene ${buf.length} bytes y la tabla espera ${esperado}. ` +
-        'Corré `npm run vectores` para reconstruirlo.',
+        'Corre `npm run vectores` para reconstruirlo.',
     )
     return null
   }

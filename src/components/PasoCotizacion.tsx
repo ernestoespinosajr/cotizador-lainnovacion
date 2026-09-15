@@ -22,12 +22,17 @@ export default function PasoCotizacion({
   cliente,
   lineas,
   grupoCliente,
+  precioConDescuento,
+  setPrecioConDescuento,
   onVolver,
 }: {
   cliente: ClienteFicha | null
   lineas: LineaEstado[]
   /** Necesario para convertir la lista elegida en el descuento que NAV acepta. */
   grupoCliente: GrupoPrecio
+  /** Toggle global de presentación del descuento. Compartido con el paso 3. */
+  precioConDescuento: boolean
+  setPrecioConDescuento: (v: boolean) => void
   onVolver: () => void
 }) {
   const [emitiendo, setEmitiendo] = useState(false)
@@ -57,19 +62,32 @@ export default function PasoCotizacion({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clienteNo: cliente?.no,
-          // El descuento que viaja ya lleva dentro el cambio de lista: NAV no
-          // acepta un precio ni un grupo, solo un porcentaje. Ver `precios.ts`.
-          lineas: incluidas.map((l) => ({
-            code: l.elegido!.code,
-            cantidad: l.cantidad,
-            texto: l.texto,
-            descuento: calcular(
+          lineas: incluidas.map((l) => {
+            const cobro = calcular(
               l.elegido!,
               grupoCliente,
               l.grupoPrecio ?? grupoCliente,
               l.descuento ?? 0,
-            ).descuentoNav,
-          })),
+            )
+            // Con precio manual NAV ignora la lista del grupo y usa el que
+            // mandamos. Sin base o sin lista elegida el catálogo no puede armar
+            // un final confiable: se cae al camino del porcentaje, que era el
+            // comportamiento previo.
+            if (precioConDescuento && cobro.final != null) {
+              return {
+                code: l.elegido!.code,
+                cantidad: l.cantidad,
+                texto: l.texto,
+                precio: cobro.final,
+              }
+            }
+            return {
+              code: l.elegido!.code,
+              cantidad: l.cantidad,
+              texto: l.texto,
+              descuento: cobro.descuentoNav,
+            }
+          }),
         }),
       })
       const d = await res.json()
@@ -138,6 +156,34 @@ export default function PasoCotizacion({
           Los precios los calcula el ERP con el grupo del cliente, así que el monto aparece recién
           al emitir. La cotización queda registrada con su número: si algo cambia después, hay que
           emitir una nueva.
+        </p>
+
+        {/*
+          Recordatorio de cómo va a viajar el descuento al ERP. El toggle en sí
+          se maneja desde el paso anterior; acá se muestra el estado para que el
+          vendedor no llegue a Emitir sin saber en qué modo está. Si quiere
+          cambiarlo, vuelve un paso.
+        */}
+        <p className="mt-4 rounded-control border-l-4 border-tinta bg-bruma px-4 py-2.5 text-xs leading-relaxed">
+          <span className="font-semibold text-tinta">Descuento:</span>{' '}
+          {precioConDescuento ? (
+            <>
+              se aplicará al precio unitario. El ERP guarda el precio ya rebajado y el PDF no
+              muestra la columna de descuento.
+            </>
+          ) : (
+            <>
+              se enviará como porcentaje. El ERP guarda el precio de lista con el descuento por
+              línea y el PDF lo imprime en su columna.
+            </>
+          )}{' '}
+          <button
+            type="button"
+            className="cifra font-bold text-tinta underline hover:no-underline"
+            onClick={onVolver}
+          >
+            cambiar
+          </button>
         </p>
       </div>
 
@@ -220,6 +266,20 @@ function Resultado({
   const n = (v: string) => Number(v) || 0
 
   /*
+   * Descuento total real.
+   *
+   * `Totals.InvoiceDiscountAmount` es el descuento a nivel de cabecera y en la
+   * práctica llega en cero, porque acá los descuentos se aplican por línea con
+   * `Line_Discount_Pct`. Antes se mostraba solo el de cabecera y el bloque de
+   * totales quedaba en 0,00 aunque el cotizador hubiera puesto 15% en cada
+   * línea. Se suman también los `LineDiscountAmount` para reflejar lo que el
+   * cliente realmente ahorra.
+   */
+  const descuentoTotal =
+    n(t.InvoiceDiscountAmount) +
+    c.Lineas.reduce((acc, l) => acc + n(l.LineDiscountAmount), 0)
+
+  /*
    * Líneas que el ERP valoró en cero.
    *
    * No significa que el producto no tenga precio: puede tenerlo en el catálogo y
@@ -281,7 +341,9 @@ function Resultado({
 
         <dl className="flex flex-wrap justify-end gap-x-8 gap-y-2 border-t-2 border-tinta bg-bruma px-5 py-4">
           <Total rotulo="Subtotal">{pesos.format(n(t.TotalAmountExclVAT || t.SubTotal))}</Total>
-          <Total rotulo="Descuento">{pesos.format(n(t.InvoiceDiscountAmount))}</Total>
+          {descuentoTotal > 0 && (
+            <Total rotulo="Descuento">{pesos.format(descuentoTotal)}</Total>
+          )}
           <Total rotulo="ITBIS">{pesos.format(n(t.VATAmount))}</Total>
           <Total rotulo="Total" fuerte>
             {pesos.format(n(t.TotalAmountInclVAT))}

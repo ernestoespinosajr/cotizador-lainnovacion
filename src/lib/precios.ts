@@ -1,21 +1,25 @@
 /**
  * Los tres precios del catálogo y cómo se le comunican a NAV.
  *
- * NAV no acepta que se le mande un precio. Se probaron seis formas contra la
- * pasarela —Unit_Price, UnitPrice, Price y Line_Discount_Amount por línea, y
- * Customer_Price_Group, Price_Group y CustomerPriceGroup en la cabecera— y las
- * ignora todas: siempre aplica el precio del grupo que el cliente tiene en su
- * ficha. Lo único que sí respeta es `Line_Discount_Pct`, con decimales, entre 0
- * y 100 (los negativos los rechaza con un mensaje explícito).
+ * NAV tiene dos formas de aceptar un precio distinto al de la lista del cliente:
+ *
+ *   1. `Line_Discount_Pct` — porcentaje de descuento sobre lo que NAV aplique,
+ *      con decimales, entre 0 y 100 (los negativos los rechaza).
+ *   2. `Unit_Price` + `Use_Manual_Price=true` — precio unitario forzado, que
+ *      permite incluso mandar cero para regalar el producto. Sin el flag NAV
+ *      sobreescribe el `Unit_Price` con el de la lista.
  *
  * De ahí el diseño: el cotizador elige un grupo de precio y un descuento
- * adicional, y las dos cosas viajan convertidas a un único porcentaje sobre el
- * precio que NAV va a aplicar de todos modos.
+ * adicional, y `calcular()` devuelve las dos representaciones que NAV entiende
+ * (`descuentoNav` para el porcentaje y `final` para el precio unitario). El
+ * llamador decide cuál usar según la política del documento — el toggle
+ * «aplicar el descuento al precio» del paso 4 elige entre ambas.
  *
  * Eso obliga a que el catálogo y el ERP tengan los mismos precios. Hoy no los
  * tienen —en pruebas el catálogo dice 5.250/5.000/4.300 y SANA-TEST cobra
- * 5.650/5.300/4.600 para el mismo producto—, así que el porcentaje sale
- * ligeramente corrido. Es la misma deriva de entornos que hace que los códigos
+ * 5.650/5.300/4.600 para el mismo producto—, así que en modo porcentaje sale
+ * ligeramente corrido y en modo precio manual sale distinto al que el ERP
+ * hubiera aplicado. Es la misma deriva de entornos que hace que los códigos
  * sobre 070000 no existan en el ERP de pruebas, y se corrige apuntando ambos al
  * mismo sitio. Ver el README, sección de paso a producción.
  */

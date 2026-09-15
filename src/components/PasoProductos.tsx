@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Candidato, Confianza } from '@/lib/buscar'
 import { cotizable } from '@/lib/producto'
 import type { LineaResuelta } from '@/app/api/solicitud/route'
@@ -29,6 +29,8 @@ export default function PasoProductos({
   ia,
   clienteNo,
   grupoCliente,
+  precioConDescuento,
+  setPrecioConDescuento,
 }: {
   lineas: LineaEstado[]
   setLineas: (f: (prev: LineaEstado[]) => LineaEstado[]) => void
@@ -39,6 +41,9 @@ export default function PasoProductos({
   clienteNo: string
   /** Grupo de precio del cliente en el ERP. Es el que viene preseleccionado. */
   grupoCliente: GrupoPrecio
+  /** Toggle global de presentación del descuento. Compartido con el paso 4. */
+  precioConDescuento: boolean
+  setPrecioConDescuento: (v: boolean) => void
 }) {
   const [filtro, setFiltro] = useState<Confianza | null>(null)
   const [abierta, setAbierta] = useState<string | null>(null)
@@ -98,6 +103,25 @@ export default function PasoProductos({
             frontal&quot; de un repuesto que menciona la palabra lavadora.
           </p>
         )}
+
+        <label className="mt-4 flex cursor-pointer items-start gap-2 text-xs leading-relaxed">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-3.5 w-3.5 accent-[#e91f29]"
+            checked={precioConDescuento}
+            onChange={(e) => setPrecioConDescuento(e.target.checked)}
+          />
+          <span>
+            <span className="font-semibold text-tinta">
+              Aplicar el descuento al precio (no mostrar la columna de descuento)
+            </span>
+            <span className="mt-0.5 block text-humo">
+              Al emitir, el ERP recibirá el precio ya rebajado en vez del porcentaje. Igual puedes
+              seguir usando la columna de descuento acá para elegir la rebaja; sólo cambia cómo
+              se le informa al ERP.
+            </span>
+          </span>
+        </label>
       </div>
 
       <div className="mt-5 overflow-hidden rounded-caja border border-linea">
@@ -337,17 +361,10 @@ function Fila({
       <span className="hidden lg:block">
         {p ? (
           <span className="flex items-baseline gap-0.5">
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.5}
-              value={linea.descuento ?? 0}
-              onChange={(e) =>
-                onCambiar({ descuento: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })
-              }
-              className="cifra w-12 rounded-control border border-linea bg-papel px-1.5 py-1 text-sm focus:border-tinta focus:outline-none"
-              aria-label={`Descuento de ${p.description}`}
+            <DescuentoInput
+              valor={linea.descuento ?? 0}
+              onCambiar={(descuento) => onCambiar({ descuento })}
+              aria={`Descuento de ${p.description}`}
             />
             <span className="text-xs text-humo">%</span>
           </span>
@@ -444,4 +461,72 @@ function Quitar({ onQuitar, descripcion }: { onQuitar: () => void; descripcion: 
       </svg>
     </button>
   )
+}
+
+/**
+ * Input del descuento con estado local.
+ *
+ * El campo antes hacía `Number(e.target.value) || 0` sobre un input controlado
+ * por el número del padre. Con el navegador en locale es-DO, cualquier tecleo
+ * intermedio que no fuera un número entero puro —una coma decimal, el borrado
+ * total, un punto suelto— colapsaba a 0 y el precio de la fila dejaba de
+ * seguir al que estaba tecleando. Era el «a veces no actualiza» reportado.
+ *
+ * Con estado local el usuario escribe lo que necesite («12», «12.», «12,5»),
+ * el padre recibe el número solo cuando la cadena parsea limpia, y al perder el
+ * foco se normaliza a lo que quedó guardado. El punto y la coma se aceptan como
+ * separador decimal para no pelearle al teclado del vendedor.
+ */
+function DescuentoInput({
+  valor,
+  onCambiar,
+  aria,
+}: {
+  valor: number
+  onCambiar: (n: number) => void
+  aria: string
+}) {
+  const [txt, setTxt] = useState(() => formatear(valor))
+
+  // Si el padre cambia el valor por otra vía (variante nueva, reseteo), se
+  // sincroniza el display; mientras el usuario tipea no se pisa porque el
+  // parseo local ya deja el mismo número.
+  useEffect(() => {
+    setTxt((prev) => (parsear(prev) === valor ? prev : formatear(valor)))
+  }, [valor])
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={txt}
+      onChange={(e) => {
+        const v = e.target.value
+        setTxt(v)
+        const n = parsear(v)
+        if (n !== null) onCambiar(Math.min(100, Math.max(0, n)))
+      }}
+      onBlur={() => {
+        const n = parsear(txt)
+        const limpio = n === null ? 0 : Math.min(100, Math.max(0, n))
+        setTxt(formatear(limpio))
+        onCambiar(limpio)
+      }}
+      className="cifra w-12 rounded-control border border-linea bg-papel px-1.5 py-1 text-sm focus:border-tinta focus:outline-none"
+      aria-label={aria}
+    />
+  )
+}
+
+function parsear(s: string): number | null {
+  const t = s.trim().replace(',', '.')
+  if (t === '' || t === '.' || t === '-') return null
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
+}
+
+function formatear(n: number): string {
+  // Sin decimales fijos: 0 se ve como "0", 12.5 como "12.5", así el vendedor
+  // no ve un ".00" innecesario cada vez que abre la fila.
+  return Number.isFinite(n) ? String(n) : '0'
 }

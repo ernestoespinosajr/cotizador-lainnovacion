@@ -427,12 +427,24 @@ export function buscarLibre(
 ) {
   const t = texto.trim()
   if (!t) return []
-  const exacto = porCodigoOBarras(t)
   const lista = candidatos(t, limite, vecinos, bono)
-  if (exacto && !lista.some((c) => c.code === exacto.code)) {
-    return [{ ...exacto, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código exacto' }, ...lista].slice(0, limite)
+  const vistos = new Set(lista.map((c) => c.code))
+  const arriba: Candidato[] = []
+
+  const exacto = porCodigoOBarras(t)
+  if (exacto && !vistos.has(exacto.code)) {
+    arriba.push({ ...exacto, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código exacto' })
+    vistos.add(exacto.code)
   }
-  return lista
+  // Aunque el texto entero no sea un código, puede llevar uno adentro
+  // («abanico 001010», «necesito 049374»). Se resuelven acá para que el vendedor
+  // los vea primero en el panel.
+  for (const p of codigosEmbebidos(t)) {
+    if (vistos.has(p.code)) continue
+    arriba.push({ ...p, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código en la búsqueda' })
+    vistos.add(p.code)
+  }
+  return arriba.length > 0 ? [...arriba, ...lista].slice(0, limite) : lista
 }
 
 function porCodigoOBarras(texto: string): Producto | null {
@@ -442,6 +454,35 @@ function porCodigoOBarras(texto: string): Producto | null {
     .prepare('SELECT * FROM productos WHERE code = ? OR barcode = ? LIMIT 1')
     .get(t, t) as Producto | undefined
   return r ?? null
+}
+
+/**
+ * Códigos y códigos de barras que aparecen embebidos dentro de un texto libre.
+ *
+ * El cliente puede escribir «necesito 2 abanicos código 001010» o «el 049374,
+ * 3 unidades»; `porCodigoOBarras` solo mira el texto completo, así que sin este
+ * escaneo esos casos se resuelven por descripción y el código queda ignorado.
+ * Se pide al menos un dígito para no probar palabras contra la base.
+ */
+function codigosEmbebidos(texto: string): Producto[] {
+  const tokens = texto.match(/[A-Za-z0-9.\-]{4,}/g)
+  if (!tokens) return []
+  const salida: Producto[] = []
+  const vistos = new Set<string>()
+  for (const t of tokens) {
+    if (!/\d/.test(t)) continue
+    const p = porCodigoOBarras(t)
+    if (p && !vistos.has(p.code)) {
+      vistos.add(p.code)
+      salida.push(p)
+    }
+  }
+  return salida
+}
+
+/** Búsqueda exacta por código o código de barras, para lookups del editor. */
+export function productoPor(codigo: string): Producto | null {
+  return porCodigoOBarras(codigo)
 }
 
 function aprendido(clienteNo: string, texto: string): Producto | null {
@@ -491,6 +532,36 @@ export function resolver(
       elegido: { ...literal, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código exacto' },
       variantes: candidatos(literal.description, 40, vecinos, bono).filter((c) => c.code !== literal.code).slice(0, 8),
       nota: null,
+    }
+  }
+
+  // 2b · Código embebido en el texto («abanico 001010», «necesito 049374»).
+  // Solo se toma cuando hay uno solo: si el texto contiene varios candidatos
+  // numéricos que resuelven a productos distintos, la decisión es humana.
+  const embebidos = codigosEmbebidos(texto)
+  if (embebidos.length === 1) {
+    const p = embebidos[0]
+    return {
+      confianza: 'exacto',
+      elegido: { ...p, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código en la solicitud' },
+      variantes: candidatos(p.description, 40, vecinos, bono).filter((c) => c.code !== p.code).slice(0, 8),
+      nota: null,
+    }
+  }
+  if (embebidos.length > 1) {
+    const variantes: Candidato[] = embebidos.map((p) => ({
+      ...p,
+      cobertura: 1,
+      relevancia: 1,
+      similitud: 1,
+      puntaje: 1,
+      motivo: 'Código en la solicitud',
+    }))
+    return {
+      confianza: 'ambiguo',
+      elegido: variantes[0],
+      variantes: variantes.slice(1, 9),
+      nota: 'La solicitud tiene varios códigos. Confirma cuál es el que corresponde.',
     }
   }
 
