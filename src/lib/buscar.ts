@@ -414,7 +414,12 @@ export function candidatos(
     }
   })
 
-  scored.sort((a, b) => b.puntaje - a.puntaje)
+  // Se compara con cuatro decimales y se desempata por código. La similitud
+  // viene del vector de la consulta, que la API no devuelve idéntico entre
+  // llamadas: en los últimos decimales bastaba para intercambiar dos candidatos
+  // casi empatados y que la misma solicitud saliera en otro orden.
+  const r4 = (n: number) => Math.round(n * 1e4)
+  scored.sort((a, b) => r4(b.puntaje) - r4(a.puntaje) || a.code.localeCompare(b.code))
   return scored.slice(0, limite)
 }
 

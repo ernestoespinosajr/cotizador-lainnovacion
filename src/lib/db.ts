@@ -121,6 +121,16 @@ function migrar(d: DatabaseSync) {
       clave TEXT PRIMARY KEY,
       valor TEXT NOT NULL
     );
+
+    -- Respuestas de la IA por huella de la pregunta. La misma solicitud tiene
+    -- que dar el mismo resultado, y el modelo no lo garantiza ni con
+    -- temperatura cero. Como la huella incluye los candidatos, un cambio en el
+    -- catálogo produce otra pregunta y no se sirve una respuesta vieja.
+    CREATE TABLE IF NOT EXISTS ia_cache (
+      huella    TEXT PRIMARY KEY,
+      respuesta TEXT NOT NULL,
+      creado    TEXT NOT NULL
+    );
   `)
 
   agregarColumnas(d, 'productos', [

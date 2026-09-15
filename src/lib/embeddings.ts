@@ -157,9 +157,53 @@ export async function vectorizar(textos: string[]): Promise<number[][]> {
   return r.data.sort((a, b) => a.index - b.index).map((d) => d.embedding)
 }
 
+/**
+ * Vectoriza consultas de búsqueda, recordando cada una.
+ *
+ * La API no devuelve el mismo vector para el mismo texto: varía en los últimos
+ * decimales. Alcanzaba para mover el cuarto decimal del puntaje, reordenar
+ * candidatos casi empatados y, con eso, presentarle a la IA una lista distinta
+ * —que elegía otro producto—. Guardado el vector, la misma consulta recupera
+ * siempre los mismos candidatos en el mismo orden.
+ *
+ * Los productos del catálogo no pasan por aquí: tienen su propio índice.
+ */
+export async function vectorizarConsultas(textos: string[]): Promise<number[][]> {
+  if (!process.env.OPENAI_API_KEY || textos.length === 0) return []
+
+  const huella = (t: string) => `vector|${MODELO_EMBEDDING}|${DIMS}|${t.slice(0, 2000)}`
+  const leer = db().prepare('SELECT respuesta FROM ia_cache WHERE huella = ?')
+  const salida: (number[] | null)[] = textos.map((t) => {
+    const f = leer.get(huella(t)) as { respuesta: string } | undefined
+    return f ? (JSON.parse(f.respuesta) as number[]) : null
+  })
+
+  const faltan = [...new Set(textos.filter((_, i) => !salida[i]))]
+  if (faltan.length > 0) {
+    const nuevos = await vectorizar(faltan)
+    const escribir = db().prepare(
+      'INSERT OR REPLACE INTO ia_cache (huella, respuesta, creado) VALUES (?, ?, ?)',
+    )
+    const ahora = new Date().toISOString()
+    const porTexto = new Map<string, number[]>()
+    faltan.forEach((t, i) => {
+      if (!nuevos[i]) return
+      porTexto.set(t, nuevos[i])
+      escribir.run(huella(t), JSON.stringify(nuevos[i]), ahora)
+    })
+    textos.forEach((t, i) => {
+      if (!salida[i]) salida[i] = porTexto.get(t) ?? null
+    })
+  }
+
+  // Si la API falló a medias, se devuelve vacío como hacía `vectorizar`: la
+  // búsqueda sigue por texto.
+  return salida.every(Boolean) ? (salida as number[][]) : []
+}
+
 /** Vectoriza y cuantiza una consulta, lista para `vecinos()`. */
 export async function vectorConsulta(texto: string): Promise<Int8Array | null> {
-  const [v] = await vectorizar([texto])
+  const [v] = await vectorizarConsultas([texto])
   return v ? cuantizar(normalizarVector(v)) : null
 }
 

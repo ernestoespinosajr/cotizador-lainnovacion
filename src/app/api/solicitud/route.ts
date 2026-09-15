@@ -5,7 +5,7 @@ import { extraerLineas, iaDisponible, reordenar } from '@/lib/ia'
 import { estadoEspejo } from '@/lib/db'
 import { bonoDe, patronDe, usoDe } from '@/lib/historial'
 import { perfilDe } from '@/lib/perfilCache'
-import { cuantizar, normalizarVector, vecinos, vectorizar, vectoresDisponibles } from '@/lib/embeddings'
+import { cuantizar, normalizarVector, vecinos, vectorizarConsultas, vectoresDisponibles } from '@/lib/embeddings'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
   let porLinea = new Map<string, { code: string; similitud: number }[]>()
   if (vectoresDisponibles()) {
     try {
-      const vs = await vectorizar(lineas.map(consultaDe))
+      const vs = await vectorizarConsultas(lineas.map(consultaDe))
       lineas.forEach((l, i) => {
         const v = vs[i]
         if (v) porLinea.set(l.id, vecinos(cuantizar(normalizarVector(v)), 60))

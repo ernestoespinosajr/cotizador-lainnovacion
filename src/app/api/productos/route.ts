@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { buscarLibre } from '@/lib/buscar'
 import { bonoDe, patronDe, usoDe } from '@/lib/historial'
 import { perfilDe } from '@/lib/perfilCache'
-import { cuantizar, normalizarVector, vecinos, vectorizar, vectoresDisponibles } from '@/lib/embeddings'
+import { cuantizar, normalizarVector, vecinos, vectorizarConsultas, vectoresDisponibles } from '@/lib/embeddings'
 
 export const runtime = 'nodejs'
 
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   let cercanos: { code: string; similitud: number }[] = []
   if (vectoresDisponibles()) {
     try {
-      const [v] = await vectorizar([q])
+      const [v] = await vectorizarConsultas([q])
       if (v) cercanos = vecinos(cuantizar(normalizarVector(v)), 40)
     } catch (e) {
       console.error('[vectores] búsqueda manual sin semántica:', e)
