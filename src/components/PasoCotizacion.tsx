@@ -5,7 +5,7 @@ import type { CotizacionNav } from '@/lib/nav'
 import type { ClienteFicha } from '@/app/api/clientes/route'
 import type { LineaEstado } from './PasoProductos'
 import { calcular, type GrupoPrecio } from '@/lib/precios'
-import { cotizable } from '@/lib/producto'
+import { cotizable, nombreCompleto } from '@/lib/producto'
 import { Etiqueta, pesos } from './ui'
 
 type Emitida = { cotizacion: CotizacionNav; referencia: string; cotizador: string }
@@ -73,7 +73,9 @@ export default function PasoCotizacion({
             // mandamos. Sin base o sin lista elegida el catálogo no puede armar
             // un final confiable: se cae al camino del porcentaje, que era el
             // comportamiento previo.
-            if (precioConDescuento && cobro.final != null) {
+            // Precio manual también cuando la lista elegida es más cara que la
+            // del cliente: un descuento no puede subir el precio.
+            if ((precioConDescuento || cobro.requierePrecioManual) && cobro.final != null) {
               return {
                 code: l.elegido!.code,
                 cantidad: l.cantidad,
@@ -153,9 +155,8 @@ export default function PasoCotizacion({
         </dl>
 
         <p className="mt-4 rounded-control border-l-4 border-linea bg-bruma px-4 py-2.5 text-xs leading-relaxed text-humo">
-          Los precios los calcula el ERP con el grupo del cliente, así que el monto aparece recién
-          al emitir. La cotización queda registrada con su número: si algo cambia después, hay que
-          emitir una nueva.
+          El monto final lo calcula el ERP y aparece al emitir. La cotización queda registrada con
+          su número: si algo cambia después, se edita desde «Abrir existente» mientras siga abierta.
         </p>
 
         {/*
@@ -318,8 +319,9 @@ function Resultado({
                 <tr key={l.LineNo} className="border-b border-linea last:border-b-0">
                   <td className="cifra px-3 py-2 text-xs text-humo">{l.No}</td>
                   <td className="px-3 py-2">
-                    <span className="font-semibold">{l.Description}</span>
-                    {l.Description2 && <span className="block text-xs text-humo">{l.Description2}</span>}
+                    <span className="font-semibold">
+                      {nombreCompleto({ description: l.Description, description2: l.Description2 })}
+                    </span>
                   </td>
                   <td className="cifra px-3 py-2 text-right">{n(l.Quantity)}</td>
                   <td
@@ -367,7 +369,9 @@ function Resultado({
             {sinPrecio.map((l) => (
               <li key={l.LineNo} className="text-xs">
                 <span className="cifra text-humo">{l.No}</span>{' '}
-                <span className="font-semibold">{l.Description}</span>
+                <span className="font-semibold">
+                  {nombreCompleto({ description: l.Description, description2: l.Description2 })}
+                </span>
               </li>
             ))}
           </ul>

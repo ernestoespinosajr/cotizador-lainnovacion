@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { candidatos, resolver, type Candidato, type Resolucion } from '@/lib/buscar'
+import { alfabetico, candidatos, resolver, type Candidato, type Resolucion } from '@/lib/buscar'
 import { parsearExcel, parsearTexto, type LineaSolicitud } from '@/lib/parseo'
 import { extraerLineas, iaDisponible, reordenar } from '@/lib/ia'
 import { estadoEspejo } from '@/lib/db'
@@ -107,7 +107,13 @@ export async function POST(req: Request) {
   // El modelo solo reordena lo que la búsqueda dejó dudoso. Lo que ya entró por
   // código o código de barras no se toca: gastar tokens ahí no mejora nada.
   if (iaDisponible()) {
-    const dudosas = resueltas.filter((l) => l.resolucion.confianza !== 'exacto')
+    // Sin candidatos no hay nada que reordenar, y la nota de la búsqueda —qué
+    // marca o medida no existe— es más útil que la que inventaría el modelo.
+    const dudosas = resueltas.filter(
+      (l) =>
+        l.resolucion.confianza !== 'exacto' &&
+        (l.resolucion.elegido || l.resolucion.variantes.length > 0),
+    )
     if (dudosas.length > 0) {
       const fallos = await reordenar(
         dudosas.map((l) => ({
@@ -125,7 +131,7 @@ export async function POST(req: Request) {
         l.resolucion = {
           confianza: f.confianza,
           elegido,
-          variantes: pool.filter((c) => c!.code !== elegido?.code) as typeof l.resolucion.variantes,
+          variantes: alfabetico(pool.filter((c) => c!.code !== elegido?.code) as typeof l.resolucion.variantes),
           nota: f.motivo,
         }
       }

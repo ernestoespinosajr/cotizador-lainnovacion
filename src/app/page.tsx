@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import type { ClienteFicha } from '@/app/api/clientes/route'
 import type { SituacionCliente } from '@/app/api/clientes/[no]/route'
-import { grupoDe } from '@/lib/precios'
+import { grupoDe, ROTULO } from '@/lib/precios'
 import type { LineaResuelta } from '@/app/api/solicitud/route'
 import { cotizable } from '@/lib/producto'
 import PasoCliente from '@/components/PasoCliente'
@@ -150,6 +150,34 @@ export default function Page() {
             progreso del flujo y el del lote se lean igual mantiene la
             herramienta de una pieza.
           */}
+          {/*
+            El cliente, a la vista en todos los pasos (pedido de La Innovación).
+            Va en la cabecera fija para que no se pierda al bajar por una lista
+            de cien líneas. En el paso 1 no hace falta: ahí está su ficha entera.
+          */}
+          {cliente && paso > 0 && (
+            <p className="mt-2 flex flex-wrap items-baseline gap-x-2 border-t border-linea pt-2 text-xs">
+              <span className="etiqueta">Cliente</span>
+              <span className="cifra text-humo">{cliente.no}</span>
+              <span className="font-bold">{cliente.name}</span>
+              {cliente.vatRegistrationNo && (
+                <span className="text-humo">
+                  RNC <span className="cifra">{cliente.vatRegistrationNo}</span>
+                </span>
+              )}
+              {situacion && (
+                <span className="text-humo">· lista {ROTULO[grupoDe(situacion.grupoPrecio)]}</span>
+              )}
+              <button
+                type="button"
+                onClick={() => setPaso(0)}
+                className="ml-auto text-xs font-semibold text-humo underline underline-offset-4 hover:text-tinta"
+              >
+                Cambiar
+              </button>
+            </p>
+          )}
+
           <nav aria-label="Pasos" className="mt-1 sm:hidden">
             <ol className="flex gap-1.5">
               {PASOS.map((p, i) => (

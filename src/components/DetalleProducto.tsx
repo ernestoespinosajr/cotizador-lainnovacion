@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import type { Candidato } from '@/lib/buscar'
+import { nombreCompleto } from '@/lib/producto'
 import { GRUPOS, precioDe, ROTULO, type GrupoPrecio } from '@/lib/precios'
 import { pesos } from './ui'
 
@@ -47,15 +48,14 @@ export default function DetalleProducto({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Detalle de ${p.description}`}
+        aria-label={`Detalle de ${nombreCompleto(p)}`}
         onClick={(e) => e.stopPropagation()}
         className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-caja border-2 border-tinta bg-papel sm:rounded-caja"
       >
         <header className="flex items-start justify-between gap-4 border-b-2 border-tinta bg-tinta px-5 py-4 text-papel">
           <div className="min-w-0">
             <div className="etiqueta !text-papel/55">Producto {p.code}</div>
-            <h2 className="titulo mt-1 text-base leading-tight">{p.description}</h2>
-            {p.description2 && <p className="mt-1 text-xs text-papel/70">{p.description2}</p>}
+            <h2 className="titulo mt-1 text-base leading-tight">{nombreCompleto(p)}</h2>
           </div>
           <button
             ref={cerrarRef}
@@ -88,7 +88,7 @@ export default function DetalleProducto({
           <Separador />
 
           <section>
-            <div className="etiqueta">Precios de lista</div>
+            <div className="etiqueta">Precios</div>
             <div className="mt-1.5 flex flex-wrap gap-x-8 gap-y-2">
               {GRUPOS.map((g) => {
                 const v = precioDe(p, g)

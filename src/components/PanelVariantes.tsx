@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { Candidato } from '@/lib/buscar'
+import { nombreCompleto } from '@/lib/producto'
 import { ESTADOS, pesos } from './ui'
 
 /**
@@ -164,10 +165,7 @@ export default function PanelVariantes({
                 </span>
 
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold leading-snug">{c.description}</span>
-                  {c.description2 && (
-                    <span className="block text-xs text-humo">{c.description2}</span>
-                  )}
+                  <span className="block text-sm font-semibold leading-snug">{nombreCompleto(c)}</span>
                   <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                     <Existencia inventario={c.inventory} />
                     <Estado estado={c.itemStatus} />

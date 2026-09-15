@@ -8,8 +8,8 @@ import type { SituacionCliente } from '@/app/api/clientes/[no]/route'
 import PanelVariantes, { Estado, Existencia } from './PanelVariantes'
 import DetalleProducto from './DetalleProducto'
 import { calcular, GRUPOS, grupoDe, ROTULO, type GrupoPrecio } from '@/lib/precios'
-import { cotizable } from '@/lib/producto'
-import { Etiqueta, pesos } from './ui'
+import { cotizable, nombreCompleto } from '@/lib/producto'
+import { Etiqueta, pesos, Variacion } from './ui'
 
 type Borrador = { cantidad: string; grupo: GrupoPrecio; descuento: string }
 
@@ -75,7 +75,11 @@ export default function EditorCotizacion({ quoteNo }: { quoteNo: string }) {
             .catch(() => null),
         ),
       ])
-      if (fichaRes && !fichaRes.error) setFicha(fichaRes as SituacionCliente)
+      // La ruta responde `{ cliente }`. Leída sin desenvolver, la ficha quedaba
+      // sin grupo de precio y todo cliente se trataba como Detalle: en uno Por
+      // mayor, cambiar la lista o el descuento calculaba contra el precio
+      // equivocado.
+      if (fichaRes?.cliente) setFicha(fichaRes.cliente as SituacionCliente)
       const mapa: Record<string, Producto> = {}
       codes.forEach((c, i) => {
         const p = prodRes[i]?.producto
@@ -141,7 +145,9 @@ export default function EditorCotizacion({ quoteNo }: { quoteNo: string }) {
       if (cantidadTocada && cantidadN != null) out.cantidad = cantidadN
       if (precioTocado && p) {
         const c = calcular(p, grupoCliente, b.grupo, descuentoN ?? 0)
-        if (precioConDescuento && c.final != null) {
+        // Una lista más cara que la del cliente no se puede expresar como
+        // descuento: viaja como precio manual aunque el toggle esté apagado.
+        if ((precioConDescuento || c.requierePrecioManual) && c.final != null) {
           // Junto con el precio manual va `descuento: 0` porque NAV, en un
           // update, mantiene el `Line_Discount_Pct` previo si no se lo pisa;
           // sin esto, un precio manual sobre una línea con 10% quedaría con
@@ -638,7 +644,6 @@ function FilaEditor({
   const cobro = producto && precioTocado ? calcular(producto, grupoCliente, borrador.grupo, descuentoN ?? 0) : null
   const precioMostrado = cobro?.final != null ? cobro.final : precioNav
   const precioTachado = cobro?.base != null && cobro.final != null && cobro.final < cobro.base - 0.005
-  const noSePuedeSubir = cobro?.noSePuedeSubir ?? false
 
   const bloqueado = producto ? !cotizable(producto) : false
   const sucio = cambios != null && !bloqueado
@@ -664,10 +669,11 @@ function FilaEditor({
         )}
       </td>
       <td className="px-3 py-2 align-top">
-        <span className="block text-sm font-semibold leading-snug">{linea.Description}</span>
+        <span className="block text-sm font-semibold leading-snug">
+          {nombreCompleto({ description: linea.Description, description2: linea.Description2 })}
+        </span>
         <span className="mt-0.5 block text-xs text-humo">
           <span className="cifra">{linea.No}</span>
-          {linea.Description2 && ` · ${linea.Description2}`}
         </span>
         <span className="mt-0.5 block text-[0.7rem] text-humo">
           ERP actual: <span className="cifra">{pesos.format(precioNav)}</span>
@@ -749,9 +755,7 @@ function FilaEditor({
             {pesos.format(cobro.base)}
           </span>
         )}
-        {noSePuedeSubir && (
-          <span className="block text-xs font-semibold text-ambar">no sube</span>
-        )}
+        {cobro && <Variacion variacion={cobro.variacion} />}
       </td>
       <td className="px-3 py-2 align-top">
         <div className="flex items-center justify-end gap-1.5">

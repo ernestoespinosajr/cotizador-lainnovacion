@@ -14,7 +14,7 @@
  * piden. Ver components/PanelVariantes.tsx.
  */
 import { db } from './db.ts'
-import { cotizable } from './producto.ts'
+import { alfabetico, cotizable, nombreCompleto } from './producto.ts'
 
 export type Producto = {
   code: string
@@ -46,7 +46,7 @@ export type Producto = {
 
 export type Confianza = 'exacto' | 'probable' | 'ambiguo' | 'sin_match'
 
-export { cotizable }
+export { alfabetico, cotizable, nombreCompleto }
 
 // Solo el tipo: no crea dependencia en tiempo de ejecución con `historial.ts`,
 // que sí importa funciones de este módulo.
@@ -346,6 +346,30 @@ export function candidatos(
   limite = 40,
   vecinos: { code: string; similitud: number }[] = [],
   bono?: (p: Producto) => number,
+  /**
+   * Fiel a las medidas y marcas del texto. Se apaga cuando el texto no lo
+   * escribió el cliente sino que es la descripción de un producto ya resuelto
+   * por código: ahí las variantes pueden ser de otra marca o medida.
+   */
+  estricto = true,
+): Candidato[] {
+  const r = estricto ? restriccionesDe(texto) : SIN_RESTRICCIONES
+  if (r.numeros.length === 0 && r.marcas.length === 0) {
+    return recuperar(texto, limite, vecinos, bono)
+  }
+  // El filtro descarta, así que se recupera un pozo más hondo: con 40, en
+  // «tv 55 pulgadas samsung» los televisores Samsung de 55" podían quedar
+  // fuera del corte y la lista salir vacía aunque el catálogo los tenga.
+  return recuperar(texto, Math.max(limite, 150), vecinos, bono)
+    .filter((p) => cumple(p, r))
+    .slice(0, limite)
+}
+
+function recuperar(
+  texto: string,
+  limite: number,
+  vecinos: { code: string; similitud: number }[],
+  bono?: (p: Producto) => number,
 ): Candidato[] {
   const ts = terminos(texto)
   if (ts.length === 0 && vecinos.length === 0) return []
@@ -423,6 +447,113 @@ export function candidatos(
   return scored.slice(0, limite)
 }
 
+// ── Fidelidad al texto ──────────────────────────────────────────────────────
+//
+// Requerimiento de La Innovación tras el piloto: si piden «compresor de 18»,
+// solo compresores de 18; si mencionan una marca, solo esa marca. La búsqueda
+// por parecido traía lo más cercano aunque no coincidiera —«tv 55 pulgadas
+// samsung» ofrecía Daiwa, Aiwa y Chiq—, y eso obligaba a revisar a mano.
+//
+// Lo que se exige es lo que el cliente fija de forma inequívoca: las medidas
+// (números) y la marca. Los adjetivos no: «zafacón grande» no puede exigir la
+// palabra GRANDE, que el catálogo casi nunca escribe.
+
+export type Restricciones = { numeros: string[]; marcas: string[] }
+
+const SIN_RESTRICCIONES: Restricciones = { numeros: [], marcas: [] }
+
+/**
+ * Palabras y medidas de un texto, listas para comparar.
+ *
+ * Las medidas son números sueltos, con la unidad pegada como mucho: 18', 55",
+ * 8GL, 4Q, 12,000BTU (que queda en 12000). Un número metido dentro de un código
+ * de modelo no cuenta: el 18 de FAIE18A2 no dice nada del tamaño, y contarlo
+ * colaba aires acondicionados entre las neveras de 18 pies.
+ */
+function piezas(s: string) {
+  const salida: string[] = []
+  const tokens = s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/(\d),(\d{3})(?!\d)/g, '$1$2')
+    .split(/[^a-z0-9./]+/)
+  for (const bruto of tokens) {
+    const t = bruto.replace(/^[./]+|[./]+$/g, '')
+    if (!t) continue
+    const medida = t.match(/^(\d+(?:[./]\d+)?)[a-z]*$/)
+    salida.push(medida ? medida[1] : t)
+  }
+  return salida
+}
+
+const esNumero = (t: string) => /^\d+([./]\d+)?$/.test(t)
+
+/**
+ * Qué palabras del catálogo funcionan como marca.
+ *
+ * El catálogo no tiene un campo de marca, pero sí una convención: la marca va
+ * en la descripción principal, justo después del tipo (NEVERA SAMSUNG…,
+ * TELEVISOR DAIWA…), y casi nunca en la segunda descripción. Los adjetivos se
+ * comportan al revés: BLANCO aparece 2.337 veces en la segunda y 688 en la
+ * primera. Con esa proporción SAMSUNG, DAIWA, CHIQ, LG o KDK quedan como marca
+ * y BLANCA, INOX, TECHO, GRANDE o LED no, sin mantener una lista a mano.
+ *
+ * Se cuela algún tipo de producto (NEVERA, ESTUFA), y no hace daño: el producto
+ * correcto lo contiene. Por eso además nunca se exige la primera palabra del
+ * pedido, que es el tipo y puede estar escrita distinto (TV frente a TELEVISOR).
+ */
+let marcasCache: { total: number; es: (t: string) => boolean } | null = null
+
+function esMarca(t: string) {
+  const total = (db().prepare('SELECT COUNT(*) n FROM productos').get() as { n: number }).n
+  if (!marcasCache || marcasCache.total !== total) {
+    const tras = new Map<string, number>()
+    const en1 = new Map<string, number>()
+    const en2 = new Map<string, number>()
+    const sumar = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1)
+    const filas = db().prepare('SELECT description, description2 FROM productos').all() as {
+      description: string
+      description2: string
+    }[]
+    for (const f of filas) {
+      const w = normalizar(f.description).split(' ')
+      new Set(w.slice(1, 4)).forEach((x) => sumar(tras, x))
+      new Set(w).forEach((x) => sumar(en1, x))
+      new Set(normalizar(f.description2).split(' ')).forEach((x) => sumar(en2, x))
+    }
+    marcasCache = {
+      total,
+      es: (x) => (tras.get(x) ?? 0) >= 2 && (en2.get(x) ?? 0) <= 0.1 * (en1.get(x) ?? 0),
+    }
+  }
+  return marcasCache.es(t)
+}
+
+export function restriccionesDe(texto: string): Restricciones {
+  // Códigos de artículo (6 dígitos con cero delante) y de barras no son
+  // medidas: se resuelven por su propio camino.
+  const numeros = piezas(texto).filter(
+    (t) => esNumero(t) && !(t.length >= 5 && t.startsWith('0')) && t.length < 7,
+  )
+  const marcas = terminos(texto)
+    .slice(1)
+    .filter((t) => /^[a-z]+$/.test(t) && esMarca(t))
+  return { numeros: [...new Set(numeros)], marcas: [...new Set(marcas)] }
+}
+
+export function cumple(p: Producto, r: Restricciones) {
+  const ps = new Set(piezas(`${p.description} ${p.description2}`))
+  return r.numeros.every((n) => ps.has(n)) && r.marcas.every((m) => ps.has(m))
+}
+
+/** «SAMSUNG y 55» — para decirle al vendedor qué se exigió. */
+export function describirRestricciones(r: Restricciones) {
+  const partes = [...r.marcas.map((m) => m.toUpperCase()), ...r.numeros]
+  if (partes.length <= 1) return partes[0] ?? ''
+  return `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
+}
+
 /** Búsqueda manual desde el panel de variantes. */
 export function buscarLibre(
   texto: string,
@@ -433,23 +564,25 @@ export function buscarLibre(
   const t = texto.trim()
   if (!t) return []
   const lista = candidatos(t, limite, vecinos, bono)
-  const vistos = new Set(lista.map((c) => c.code))
   const arriba: Candidato[] = []
+  const vistos = new Set<string>()
 
   const exacto = porCodigoOBarras(t)
-  if (exacto && !vistos.has(exacto.code)) {
+  if (exacto) {
     arriba.push({ ...exacto, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código exacto' })
     vistos.add(exacto.code)
   }
   // Aunque el texto entero no sea un código, puede llevar uno adentro
-  // («abanico 001010», «necesito 049374»). Se resuelven acá para que el vendedor
-  // los vea primero en el panel.
+  // («abanico 001010», «necesito 049374»). Se resuelven aquí para que el
+  // vendedor los vea primero en el panel.
   for (const p of codigosEmbebidos(t)) {
     if (vistos.has(p.code)) continue
     arriba.push({ ...p, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código en la búsqueda' })
     vistos.add(p.code)
   }
-  return arriba.length > 0 ? [...arriba, ...lista].slice(0, limite) : lista
+  // Los códigos exactos van primero aunque la búsqueda también los haya traído:
+  // son lo que el vendedor tecleó. El resto, en orden alfabético.
+  return [...arriba, ...alfabetico(lista.filter((c) => !vistos.has(c.code)))].slice(0, limite)
 }
 
 function porCodigoOBarras(texto: string): Producto | null {
@@ -524,7 +657,7 @@ export function resolver(
     return {
       confianza: 'exacto',
       elegido: { ...previo, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Resuelto así en una cotización anterior' },
-      variantes: candidatos(texto, 40, vecinos, bono).filter((c) => c.code !== previo.code).slice(0, 8),
+      variantes: alfabetico(candidatos(texto, 40, vecinos, bono).filter((c) => c.code !== previo.code)),
       nota: null,
     }
   }
@@ -535,7 +668,7 @@ export function resolver(
     return {
       confianza: 'exacto',
       elegido: { ...literal, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código exacto' },
-      variantes: candidatos(literal.description, 40, vecinos, bono).filter((c) => c.code !== literal.code).slice(0, 8),
+      variantes: alfabetico(candidatos(literal.description, 40, vecinos, bono, false).filter((c) => c.code !== literal.code).slice(0, 12)),
       nota: null,
     }
   }
@@ -549,7 +682,7 @@ export function resolver(
     return {
       confianza: 'exacto',
       elegido: { ...p, cobertura: 1, relevancia: 1, similitud: 1, puntaje: 1, motivo: 'Código en la solicitud' },
-      variantes: candidatos(p.description, 40, vecinos, bono).filter((c) => c.code !== p.code).slice(0, 8),
+      variantes: alfabetico(candidatos(p.description, 40, vecinos, bono, false).filter((c) => c.code !== p.code).slice(0, 12)),
       nota: null,
     }
   }
@@ -565,14 +698,21 @@ export function resolver(
     return {
       confianza: 'ambiguo',
       elegido: variantes[0],
-      variantes: variantes.slice(1, 9),
+      variantes: alfabetico(variantes.slice(1)),
       nota: 'La solicitud tiene varios códigos. Confirma cuál es el que corresponde.',
     }
   }
 
   const lista = candidatos(texto, 40, vecinos, bono)
   if (lista.length === 0) {
-    return { ...vacio, nota: 'No hay ningún producto que se parezca en el catálogo.' }
+    const r = restriccionesDe(texto)
+    const exigido = describirRestricciones(r)
+    return {
+      ...vacio,
+      nota: exigido
+        ? `No hay en el catálogo un producto que coincida con ${exigido}. Busca a mano si el cliente acepta otra marca o medida.`
+        : 'No hay ningún producto que se parezca en el catálogo.',
+    }
   }
 
   // Un producto bloqueado no se puede cotizar, así que no puede ser la elección
@@ -586,7 +726,10 @@ export function resolver(
 
   const [top, segundo] = ordenada
   const margen = segundo ? top.puntaje - segundo.puntaje : 1
-  const variantes = ordenada.slice(1, 9)
+  // Todas las que pasaron el filtro, no solo las ocho mejores: con la búsqueda
+  // fiel al texto la lista ya es corta, y en orden alfabético el vendedor
+  // encuentra el modelo sin leer un ranking que no le dice nada.
+  const variantes = alfabetico(ordenada.slice(1, 30))
 
   // 3 · Descripción idéntica: no es solo alta confianza, es certeza.
   if (normalizar(top.description) === normalizar(texto)) {
@@ -602,7 +745,7 @@ export function resolver(
     return {
       confianza: 'sin_match',
       elegido: null,
-      variantes: ordenada.slice(0, 8),
+      variantes: alfabetico(ordenada.slice(0, 30)),
       nota: 'Nada en el catálogo se parece a lo pedido. Busca a mano si conoces el producto.',
     }
   }

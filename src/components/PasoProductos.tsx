@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { Candidato, Confianza } from '@/lib/buscar'
-import { cotizable } from '@/lib/producto'
+import { alfabetico, cotizable, nombreCompleto } from '@/lib/producto'
 import type { LineaResuelta } from '@/app/api/solicitud/route'
 import EspinaConfianza from './EspinaConfianza'
 import PanelVariantes, { Estado, Existencia } from './PanelVariantes'
 import DetalleProducto from './DetalleProducto'
 import { calcular, GRUPOS, ROTULO, type GrupoPrecio } from '@/lib/precios'
-import { ESTADOS, pesos } from './ui'
+import { ESTADOS, pesos, Variacion } from './ui'
 
 export type LineaEstado = LineaResuelta & {
   elegido: Candidato | null
@@ -116,9 +116,9 @@ export default function PasoProductos({
               Aplicar el descuento al precio (no mostrar la columna de descuento)
             </span>
             <span className="mt-0.5 block text-humo">
-              Al emitir, el ERP recibirá el precio ya rebajado en vez del porcentaje. Igual puedes
-              seguir usando la columna de descuento acá para elegir la rebaja; sólo cambia cómo
-              se le informa al ERP.
+              Al emitir, el ERP recibirá el precio ya rebajado en vez del porcentaje. Puedes seguir
+              usando la columna de descuento para elegir la rebaja; solo cambia cómo se le informa
+              al ERP.
             </span>
           </span>
         </label>
@@ -175,13 +175,9 @@ export default function PasoProductos({
       </div>
 
       {/*
-        Al pie va el conteo, no un total.
-
-        El precio del espejo es la lista genérica y NAV aplica el grupo del
-        cliente: para el ítem 001010 el espejo dice 5.995,00 y NAV devuelve
-        5.000,00 a un cliente y 4.152,54 a otro. Un total con 31% de error es
-        peor que ningún total, porque el vendedor se lo canta al cliente por
-        teléfono. El monto real aparece en el paso 4, calculado por el ERP.
+        Al pie va el conteo, no un total: el monto que vale es el que calcula el
+        ERP en el paso 4. La aclaración de que los precios eran de lista se
+        quitó a pedido de La Innovación.
       */}
       <div className="sticky bottom-0 mt-5 flex items-center justify-between gap-4 rounded-caja border-2 border-tinta bg-papel px-4 py-2.5 md:px-5 md:py-4">
         <div>
@@ -191,22 +187,22 @@ export default function PasoProductos({
             <span className="text-humo"> de {lineas.length} líneas</span>
           </p>
         </div>
-        <p className="max-w-xs text-right text-xs leading-snug text-humo">
-          Los precios son de lista. El ERP aplica el grupo del cliente al emitir.
-        </p>
       </div>
 
       {activa && (
         <PanelVariantes
           pedido={activa.texto}
           elegido={activa.elegido}
-          variantes={
+          // Todo en orden alfabético, el elegido incluido: pedido de La
+          // Innovación. El elegido se distingue por su marca de seleccionado,
+          // no por ir primero.
+          variantes={alfabetico(
             activa.elegido
               ? [activa.elegido, ...activa.resolucion.variantes].filter(
                   (c, i, a) => a.findIndex((x) => x.code === c.code) === i,
                 )
-              : activa.resolucion.variantes
-          }
+              : activa.resolucion.variantes,
+          )}
           onElegir={(c) => {
             actualizar(activa.id, { elegido: c, incluida: true })
             setAbierta(null)
@@ -302,7 +298,7 @@ function Fila({
       <span className="min-w-0">
         {p ? (
           <>
-            <span className="block text-sm font-semibold leading-snug">{p.description}</span>
+            <span className="block text-sm font-semibold leading-snug">{nombreCompleto(p)}</span>
             <span className="mt-0.5 block text-xs text-humo">
               <span className="cifra">{p.code}</span>
               {/* Una línea agregada a mano no tiene un "pidió" que citar: no
@@ -384,9 +380,7 @@ function Fila({
                 {pesos.format(cobro.base)}
               </span>
             )}
-            {cobro.noSePuedeSubir && (
-              <span className="block text-xs font-semibold text-ambar">no sube</span>
-            )}
+            <Variacion variacion={cobro.variacion} />
           </>
         ) : (
           <span className="cifra text-sm text-humo">—</span>

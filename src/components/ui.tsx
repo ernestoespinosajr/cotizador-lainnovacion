@@ -46,3 +46,22 @@ export const ESTADOS: Record<
 export function Etiqueta({ children }: { children: React.ReactNode }) {
   return <div className="etiqueta">{children}</div>
 }
+
+const porcentaje = new Intl.NumberFormat('es-DO', { maximumFractionDigits: 2 })
+
+/**
+ * Cuánto sube o baja el precio respecto al que el cliente tiene por defecto.
+ *
+ * Lo pidió La Innovación para validar de un vistazo el efecto de cambiar la
+ * lista o poner un descuento. Sin cambio no se muestra nada: una línea igual al
+ * precio del cliente no tiene nada que avisar.
+ */
+export function Variacion({ variacion }: { variacion: number }) {
+  if (variacion === 0) return null
+  const sube = variacion > 0
+  return (
+    <span className={`block text-xs font-semibold ${sube ? 'text-ambar' : 'text-humo'}`}>
+      {sube ? '↑ sube' : '↓ baja'} <span className="cifra">{porcentaje.format(Math.abs(variacion))}%</span>
+    </span>
+  )
+}

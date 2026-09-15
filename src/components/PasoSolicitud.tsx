@@ -3,18 +3,6 @@
 import { useRef, useState } from 'react'
 import { Etiqueta } from './ui'
 
-const EJEMPLO = `Buenos días,
-
-Favor cotizarme lo siguiente para la sucursal de Santiago:
-
-- 12 abanicos de techo KDK
-- 3 neveras de dos puertas
-- 8 microondas 1.1 pies
-- 2 extractores de grasa de 90cm
-- 5 licuadoras Oster de vidrio
-
-Quedo atento. Gracias.`
-
 export default function PasoSolicitud({
   onAnalizar,
   cargando,
@@ -56,16 +44,6 @@ export default function PasoSolicitud({
           }}
           disabled={cargando}
         />
-        <button
-          type="button"
-          onClick={() => {
-            setTexto(EJEMPLO)
-            setArchivo(null)
-          }}
-          className="mt-2 text-xs font-semibold text-humo underline underline-offset-4 hover:text-tinta"
-        >
-          Usar un ejemplo
-        </button>
       </div>
 
       <div className="flex flex-col">

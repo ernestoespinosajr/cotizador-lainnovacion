@@ -52,26 +52,37 @@ export function precioDe(p: Producto, grupo: GrupoPrecio): number | null {
 }
 
 export type Cobro = {
-  /** El que NAV va a aplicar por sí solo: el del grupo del cliente. */
+  /** El que NAV aplica por sí solo: el del grupo del cliente. Es el de referencia. */
   base: number | null
   /** El de la lista que eligió el cotizador, antes de su descuento. */
   elegido: number | null
   /** Lo que termina pagando el cliente por unidad. */
   final: number | null
-  /** Porcentaje único que se le envía a NAV. Ya incluye el cambio de lista. */
+  /** Porcentaje que se le envía a NAV. Ya incluye el cambio de lista. */
   descuentoNav: number
   /**
-   * Cuando el grupo elegido es más caro que el del cliente. NAV no puede subir
-   * un precio, solo descontarlo, así que se cobra el del cliente y se avisa.
+   * Cuánto se aparta el precio final del que el cliente tiene por defecto, en
+   * porcentaje: positivo si sube, negativo si baja, cero si queda igual.
    */
-  noSePuedeSubir: boolean
+  variacion: number
+  /**
+   * El final queda por encima del precio del cliente. Un descuento no puede
+   * subir un precio —NAV rechaza los negativos—, así que esa línea tiene que
+   * viajar como precio manual.
+   */
+  requierePrecioManual: boolean
 }
 
 /**
- * Traduce «esta lista más este descuento» al único porcentaje que NAV entiende.
+ * Traduce «esta lista más este descuento» a lo que NAV entiende.
  *
  * El descuento se calcula contra el precio del grupo del CLIENTE, no contra el
  * elegido, porque es sobre ese que NAV va a aplicarlo.
+ *
+ * Antes, elegir una lista más cara que la del cliente dejaba el precio igual
+ * con el aviso «no sube»: NAV solo aceptaba descuentos. Con `Use_Manual_Price`
+ * el precio sí se puede subir, así que ahora se cobra lo elegido y se indica
+ * cuánto sube o baja respecto al precio por defecto.
  */
 export function calcular(
   p: Producto,
@@ -84,17 +95,14 @@ export function calcular(
   const extra = Math.min(100, Math.max(0, descuentoExtra || 0))
 
   if (base == null || base <= 0 || elegido == null) {
-    return { base, elegido, final: null, descuentoNav: extra, noSePuedeSubir: false }
+    return { base, elegido, final: null, descuentoNav: extra, variacion: 0, requierePrecioManual: false }
   }
 
   const final = elegido * (1 - extra / 100)
   const bruto = (1 - final / base) * 100
-
-  if (bruto < 0) {
-    // Subir de lista no es posible: NAV rechaza un descuento negativo. Se cobra
-    // el precio del cliente, que es lo que el ERP haría igual.
-    return { base, elegido, final: base, descuentoNav: 0, noSePuedeSubir: true }
-  }
+  // Por debajo de medio centavo es redondeo, no un cambio de precio: sin este
+  // margen, «Detalle» con 0% sobre un cliente Detalle podía marcar «sube 0,00%».
+  const igual = Math.abs(final - base) < 0.005
 
   return {
     base,
@@ -102,7 +110,8 @@ export function calcular(
     final,
     // Dos decimales: NAV los acepta y con menos el precio final se corre en
     // pedidos grandes.
-    descuentoNav: Math.min(100, Math.round(bruto * 100) / 100),
-    noSePuedeSubir: false,
+    descuentoNav: igual || bruto < 0 ? 0 : Math.min(100, Math.round(bruto * 100) / 100),
+    variacion: igual ? 0 : (final / base - 1) * 100,
+    requierePrecioManual: !igual && bruto < 0,
   }
 }
