@@ -285,13 +285,15 @@ function Fila({
       </span>
 
       <span className="hidden lg:block">
-        <input
-          type="number"
+        {/* Mismo campo que el descuento: con el número controlado directo, borrar
+            para reescribir volvía a «1» al instante y «12» terminaba en «112». */}
+        <NumeroInput
+          valor={linea.cantidad}
           min={1}
-          value={linea.cantidad}
-          onChange={(e) => onCambiar({ cantidad: Math.max(1, Number(e.target.value) || 1) })}
-          className="cifra w-14 rounded-control border border-linea bg-papel px-1.5 py-1 text-sm focus:border-tinta focus:outline-none"
-          aria-label="Cantidad"
+          max={1_000_000}
+          onCambiar={(cantidad) => onCambiar({ cantidad })}
+          aria="Cantidad"
+          ancho="w-14"
         />
       </span>
 
@@ -357,10 +359,13 @@ function Fila({
       <span className="hidden lg:block">
         {p ? (
           <span className="flex items-baseline gap-0.5">
-            <DescuentoInput
+            <NumeroInput
               valor={linea.descuento ?? 0}
+              min={0}
+              max={100}
               onCambiar={(descuento) => onCambiar({ descuento })}
               aria={`Descuento de ${p.description}`}
+              ancho="w-12"
             />
             <span className="text-xs text-humo">%</span>
           </span>
@@ -458,29 +463,36 @@ function Quitar({ onQuitar, descripcion }: { onQuitar: () => void; descripcion: 
 }
 
 /**
- * Input del descuento con estado local.
+ * Campo numérico con estado local, para el descuento y la cantidad.
  *
- * El campo antes hacía `Number(e.target.value) || 0` sobre un input controlado
- * por el número del padre. Con el navegador en locale es-DO, cualquier tecleo
- * intermedio que no fuera un número entero puro —una coma decimal, el borrado
- * total, un punto suelto— colapsaba a 0 y el precio de la fila dejaba de
- * seguir al que estaba tecleando. Era el «a veces no actualiza» reportado.
+ * Antes cada campo hacía `Number(e.target.value) || 0` sobre un input
+ * controlado por el número del padre. Con el navegador en locale es-DO,
+ * cualquier tecleo intermedio que no fuera un número entero puro —una coma
+ * decimal, el borrado total, un punto suelto— colapsaba al mínimo y la fila
+ * dejaba de seguir lo que se tecleaba. Era el «a veces no actualiza» reportado.
  *
  * Con estado local el usuario escribe lo que necesite («12», «12.», «12,5»),
  * el padre recibe el número solo cuando la cadena parsea limpia, y al perder el
  * foco se normaliza a lo que quedó guardado. El punto y la coma se aceptan como
  * separador decimal para no pelearle al teclado del vendedor.
  */
-function DescuentoInput({
+function NumeroInput({
   valor,
+  min,
+  max,
   onCambiar,
   aria,
+  ancho,
 }: {
   valor: number
+  min: number
+  max: number
   onCambiar: (n: number) => void
   aria: string
+  ancho: string
 }) {
   const [txt, setTxt] = useState(() => formatear(valor))
+  const acotar = (n: number) => Math.min(max, Math.max(min, n))
 
   // Si el padre cambia el valor por otra vía (variante nueva, reseteo), se
   // sincroniza el display; mientras el usuario tipea no se pisa porque el
@@ -498,15 +510,17 @@ function DescuentoInput({
         const v = e.target.value
         setTxt(v)
         const n = parsear(v)
-        if (n !== null) onCambiar(Math.min(100, Math.max(0, n)))
+        // Por debajo del mínimo no se propaga mientras escribe: un «0» camino
+        // de «0,5» no debe saltar a 1 bajo sus dedos.
+        if (n !== null && n >= min) onCambiar(acotar(n))
       }}
       onBlur={() => {
         const n = parsear(txt)
-        const limpio = n === null ? 0 : Math.min(100, Math.max(0, n))
+        const limpio = n === null ? min : acotar(n)
         setTxt(formatear(limpio))
         onCambiar(limpio)
       }}
-      className="cifra w-12 rounded-control border border-linea bg-papel px-1.5 py-1 text-sm focus:border-tinta focus:outline-none"
+      className={`cifra ${ancho} rounded-control border border-linea bg-papel px-1.5 py-1 text-sm focus:border-tinta focus:outline-none`}
       aria-label={aria}
     />
   )

@@ -14,10 +14,10 @@ import PDFDocument from 'pdfkit'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import type { CotizacionNav } from './nav.ts'
+import { nombreCompleto } from './producto.ts'
 
 const VERDE = '#00993F'
 const TINTA = '#111111'
-const GRIS = '#666666'
 
 /** Días de validez del precio, según el pie del modelo. */
 const DIAS_VALIDEZ = 3
@@ -181,8 +181,11 @@ export async function generarPdf(datos: DatosPdf): Promise<Buffer> {
     const itbisLinea = (Number(l.AmountIncludingVAT) || 0) - (Number(l.Amount) || 0)
 
     doc.font('Helvetica').fontSize(7)
-    const hDesc = doc.heightOfString(l.Description ?? '', { width: COLS[1].w - 4 })
-    const hFila = Math.max(11, hDesc + (l.Description2 ? 8 : 0)) + 3
+    // Descripción 1 y 2 en un solo texto, igual que en pantalla (pedido de La
+    // Innovación): impresa aparte, la segunda se leía como nota al pie.
+    const nombre = nombreCompleto({ description: l.Description ?? '', description2: l.Description2 })
+    const hDesc = doc.heightOfString(nombre, { width: COLS[1].w - 4 })
+    const hFila = Math.max(11, hDesc) + 3
 
     // Salto de página: la cabecera de la tabla se repite para que las cien
     // líneas de un pedido largo sigan siendo legibles.
@@ -196,7 +199,7 @@ export async function generarPdf(datos: DatosPdf): Promise<Buffer> {
 
     const vals: Record<string, string> = {
       codigo: l.No ?? '',
-      desc: l.Description ?? '',
+      desc: nombre,
       unid: l.UnitOfMeasureCode ?? '',
       ctd: money(l.Quantity),
       precio: money(l.UnitPrice),
@@ -213,12 +216,6 @@ export async function generarPdf(datos: DatosPdf): Promise<Buffer> {
       doc.font('Helvetica').fontSize(7).fillColor(TINTA)
       doc.text(vals[col.k], x + 2, y, { width: col.w - 4, align: col.a, lineBreak: col.k === 'desc' })
       x += col.w
-    }
-
-    if (l.Description2) {
-      doc.font('Helvetica').fontSize(6.5).fillColor(GRIS)
-      doc.text(l.Description2, M + COLS[0].w + 2, y + hDesc + 1, { width: COLS[1].w - 4 })
-      doc.fillColor(TINTA)
     }
 
     y += hFila
